@@ -1145,6 +1145,7 @@ const configHitboxes = {
     betMinusBtn: null,
     betPlusBtn: null,
     placeBetBtn: null,
+    musicBtn: null,
 };
 
 function updateConfigScreen(dt) {
@@ -1198,13 +1199,27 @@ function drawConfigScreen() {
         ctx.fillText('🎮 DEMO MODE | SELECT AI AGENT', 8, 16);
     }
     
-    // Live game info (top right)
+    // Music toggle button (top right)
+    const musicBtn = { x: WIDTH - 28, y: 4, w: 20, h: 16 };
+    configHitboxes.musicBtn = musicBtn;
+    const isMusicHover = isPointInRect(mouseX, mouseY, musicBtn);
+    
+    ctx.fillStyle = isMusicHover ? '#2a4a5a' : '#1a3a4a';
+    ctx.beginPath();
+    ctx.roundRect(musicBtn.x, musicBtn.y, musicBtn.w, musicBtn.h, 4);
+    ctx.fill();
+    ctx.fillStyle = musicMuted ? '#ff4040' : '#40ff40';
+    ctx.font = '12px VT323';
+    ctx.textAlign = 'center';
+    ctx.fillText(musicMuted ? '🔇' : '🔊', musicBtn.x + musicBtn.w/2, musicBtn.y + 13);
+    
+    // Live game info (top right, before music button)
     if (CONFIG_STATE.mode === 'live') {
         const mins = Math.floor(LIVE_GAME.timeRemaining / 60);
         const secs = Math.floor(LIVE_GAME.timeRemaining % 60);
         ctx.textAlign = 'right';
         ctx.fillStyle = LIVE_GAME.phase === 'betting' ? COLORS.textGreen : COLORS.textYellow;
-        ctx.fillText(`⏱ ${mins}:${String(secs).padStart(2, '0')} | 👁 ${LIVE_GAME.viewers}`, WIDTH - 8, 16);
+        ctx.fillText(`⏱ ${mins}:${String(secs).padStart(2, '0')} | 👁 ${LIVE_GAME.viewers}`, WIDTH - 35, 16);
     }
     
     // === AGENT SELECTION (Left panel) ===
@@ -1526,6 +1541,13 @@ function drawConfigSection(x, y, w, h, title) {
 
 function handleConfigClick(x, y) {
     if (currentScreen !== SCREENS.CONFIG) return;
+    
+    // Music button
+    if (configHitboxes.musicBtn && isPointInRect(x, y, configHitboxes.musicBtn)) {
+        toggleMusic();
+        if (!musicPlaying && !musicMuted) startMusic();
+        return;
+    }
     
     // Agent buttons
     configHitboxes.agentButtons.forEach(btn => {
