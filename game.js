@@ -1306,11 +1306,41 @@ function drawConfigScreen() {
             ctx.fillText('Connect Wallet to Bet', walletBtn.x + walletBtn.w/2, walletBtn.y + 17);
         }
         
-        // === BET AMOUNT SECTION ===
-        drawConfigSection(216, 198, 176, 50, '◎ BET AMOUNT (SOL)');
+    } else {
+        // Demo mode info
+        drawConfigSection(216, 32, 176, 160, 'DEMO MODE INFO');
+        
+        ctx.font = '11px VT323';
+        ctx.textAlign = 'left';
+        
+        ctx.fillStyle = COLORS.textCyan;
+        ctx.fillText('Practice Mode', 224, 52);
+        
+        ctx.fillStyle = COLORS.textLight;
+        ctx.fillText('Duration: 10 minutes', 224, 72);
+        ctx.fillText('Asset: ' + TRADING_ASSET.icon + ' ' + TRADING_ASSET.name, 224, 88);
+        
+        ctx.fillStyle = COLORS.textYellow;
+        ctx.fillText('Virtual Balance:', 224, 110);
+        ctx.fillText('¥1,000,000', 224, 126);
+        
+        ctx.fillStyle = '#888';
+        ctx.fillText('No wallet required', 224, 150);
+        ctx.fillText('No real rewards', 224, 166);
+        ctx.fillText('Same gameplay as Live', 224, 182);
+        
+        configHitboxes.walletButton = null;
+        configHitboxes.betMinusBtn = null;
+        configHitboxes.betPlusBtn = null;
+        configHitboxes.placeBetBtn = null;
+    }
+    
+    // === BET AMOUNT SECTION (Below agents, Live mode only) ===
+    if (CONFIG_STATE.mode === 'live') {
+        drawConfigSection(8, 198, WIDTH - 16, 48, '◎ BET AMOUNT (SOL)');
         
         // Minus button
-        const minusBtn = { x: 224, y: 216, w: 32, h: 26 };
+        const minusBtn = { x: 16, y: 214, w: 32, h: 26 };
         configHitboxes.betMinusBtn = minusBtn;
         const isMinusHover = isPointInRect(mouseX, mouseY, minusBtn);
         
@@ -1327,7 +1357,7 @@ function drawConfigScreen() {
         ctx.fillText('−', minusBtn.x + minusBtn.w/2, minusBtn.y + 19);
         
         // Bet amount display
-        const amountBox = { x: 260, y: 216, w: 88, h: 26 };
+        const amountBox = { x: 52, y: 214, w: 90, h: 26 };
         ctx.fillStyle = '#0a2a3a';
         ctx.beginPath();
         ctx.roundRect(amountBox.x, amountBox.y, amountBox.w, amountBox.h, 4);
@@ -1342,7 +1372,7 @@ function drawConfigScreen() {
         ctx.fillText(`${CONFIG_STATE.betAmount.toFixed(2)} SOL`, amountBox.x + amountBox.w/2, amountBox.y + 18);
         
         // Plus button
-        const plusBtn = { x: 352, y: 216, w: 32, h: 26 };
+        const plusBtn = { x: 146, y: 214, w: 32, h: 26 };
         configHitboxes.betPlusBtn = plusBtn;
         const isPlusHover = isPointInRect(mouseX, mouseY, plusBtn);
         
@@ -1358,8 +1388,8 @@ function drawConfigScreen() {
         ctx.textAlign = 'center';
         ctx.fillText('+', plusBtn.x + plusBtn.w/2, plusBtn.y + 19);
         
-        // === PLACE BET BUTTON ===
-        const placeBetBtn = { x: 224, y: 248, w: 160, h: 30 };
+        // === PLACE BET BUTTON (Right side) ===
+        const placeBetBtn = { x: 190, y: 214, w: 194, h: 26 };
         configHitboxes.placeBetBtn = placeBetBtn;
         const isPlaceBetHover = isPointInRect(mouseX, mouseY, placeBetBtn);
         
@@ -1378,7 +1408,7 @@ function drawConfigScreen() {
             ctx.fillStyle = '#000';
             ctx.font = 'bold 12px VT323';
             ctx.textAlign = 'center';
-            ctx.fillText('✓ BET PLACED!', placeBetBtn.x + placeBetBtn.w/2, placeBetBtn.y + 20);
+            ctx.fillText('✓ BET PLACED!', placeBetBtn.x + placeBetBtn.w/2, placeBetBtn.y + 17);
         } else if (canPlaceBet) {
             // Can place bet - show active button
             const betGradient = ctx.createLinearGradient(placeBetBtn.x, placeBetBtn.y, placeBetBtn.x, placeBetBtn.y + placeBetBtn.h);
@@ -1406,7 +1436,7 @@ function drawConfigScreen() {
             ctx.fillStyle = '#000';
             ctx.font = 'bold 12px VT323';
             ctx.textAlign = 'center';
-            ctx.fillText('💰 PLACE BET', placeBetBtn.x + placeBetBtn.w/2, placeBetBtn.y + 20);
+            ctx.fillText('💰 CONFIRM BET', placeBetBtn.x + placeBetBtn.w/2, placeBetBtn.y + 17);
         } else {
             // Cannot place bet - show disabled button with reason
             ctx.fillStyle = '#333';
@@ -1422,38 +1452,13 @@ function drawConfigScreen() {
             ctx.textAlign = 'center';
             
             if (!walletConnected) {
-                ctx.fillText('Connect wallet first', placeBetBtn.x + placeBetBtn.w/2, placeBetBtn.y + 20);
+                ctx.fillText('Connect wallet first', placeBetBtn.x + placeBetBtn.w/2, placeBetBtn.y + 17);
             } else if (LIVE_GAME.phase !== 'betting') {
-                ctx.fillText('Betting closed', placeBetBtn.x + placeBetBtn.w/2, placeBetBtn.y + 20);
+                ctx.fillText('Betting closed', placeBetBtn.x + placeBetBtn.w/2, placeBetBtn.y + 17);
             } else if (walletBalance < CONFIG_STATE.betAmount) {
-                ctx.fillText('Insufficient balance', placeBetBtn.x + placeBetBtn.w/2, placeBetBtn.y + 20);
+                ctx.fillText('Insufficient balance', placeBetBtn.x + placeBetBtn.w/2, placeBetBtn.y + 17);
             }
         }
-        
-    } else {
-        // Demo mode info
-        drawConfigSection(216, 32, 176, 160, 'DEMO MODE INFO');
-        
-        ctx.font = '11px VT323';
-        ctx.textAlign = 'left';
-        
-        ctx.fillStyle = COLORS.textCyan;
-        ctx.fillText('Practice Mode', 224, 52);
-        
-        ctx.fillStyle = COLORS.textLight;
-        ctx.fillText('Duration: 10 minutes', 224, 72);
-        ctx.fillText('Asset: ' + TRADING_ASSET.icon + ' ' + TRADING_ASSET.name, 224, 88);
-        
-        ctx.fillStyle = COLORS.textYellow;
-        ctx.fillText('Virtual Balance:', 224, 110);
-        ctx.fillText('¥1,000,000', 224, 126);
-        
-        ctx.fillStyle = '#888';
-        ctx.fillText('No wallet required', 224, 150);
-        ctx.fillText('No real rewards', 224, 166);
-        ctx.fillText('Same gameplay as Live', 224, 182);
-        
-        configHitboxes.walletButton = null;
     }
     
     // === START BUTTON ===
