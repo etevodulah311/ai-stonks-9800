@@ -254,7 +254,8 @@ const COLORS = {
 const SCREENS = {
     BOOT: 'boot',
     TITLE: 'title',
-    CONFIG: 'config',  // New unified config screen
+    MODE_SELECT: 'mode_select',  // First: choose Demo or Live
+    CONFIG: 'config',            // Then: configure game
     GAME: 'game'
 };
 
@@ -264,13 +265,12 @@ const SCREENS = {
 const CONFIG_STATE = {
     mode: 'demo',           // 'live' or 'demo'
     selectedAgent: 0,       // 0-3 (ChatGPT, Gemini, Claude, Grok)
-    selectedAsset: 0,       // Selected trading asset
     betAmount: 0.1,         // Bet amount in SOL (live) or virtual (demo)
     hasBet: false,          // Whether user has placed a bet
 };
 
 // ============================================
-// LIVE GAME STATE (Simulated Backend)
+// LIVE GAME STATE (Backend Connection)
 // ============================================
 const LIVE_GAME = {
     // Game timing (10 min = 600 seconds)
@@ -283,7 +283,7 @@ const LIVE_GAME = {
     timeRemaining: 600,
     phase: 'betting',       // 'betting' or 'watching'
     
-    // Viewers
+    // Real viewers count (0 = no one watching)
     viewers: 0,
     
     // Agent PNL (percentage)
@@ -296,15 +296,10 @@ const LIVE_GAME = {
     winner: -1,
 };
 
-// Trading assets
-const TRADING_ASSETS = [
-    { symbol: 'BTC', name: 'Bitcoin', icon: '₿' },
-    { symbol: 'ETH', name: 'Ethereum', icon: 'Ξ' },
-    { symbol: 'SOL', name: 'Solana', icon: '◎' },
-    { symbol: 'DOGE', name: 'Dogecoin', icon: 'Ð' },
-];
+// Fixed asset: Solana only
+const TRADING_ASSET = { symbol: 'SOL', name: 'Solana', icon: '◎' };
 
-// AI Agents (updated)
+// AI Agents
 const AI_AGENTS_CONFIG = [
     { id: 'chatgpt', name: 'ChatGPT', color: '#10a37f', icon: '◆' },
     { id: 'gemini', name: 'Gemini', color: '#4285f4', icon: '●' },
@@ -481,6 +476,7 @@ function setupMouseHandlers() {
         const clickY = (e.clientY - rect.top) * scaleY;
         
         handleMenuClick(clickX, clickY);
+        handleModeSelectClick(clickX, clickY);
         handleConfigClick(clickX, clickY);
         handleGameTabClick(clickX, clickY);
     });
@@ -831,11 +827,11 @@ function drawTitleScreen() {
 }
 
 // ============================================
-// LIVE GAME SIMULATION (Backend Simulation)
+// LIVE GAME STATE (Synchronized)
 // ============================================
 function initLiveGame() {
-    // Simulate synchronized game based on real time
-    // Games start every 10 minutes aligned to clock
+    // Synchronized game based on real time
+    // Games start every 10 minutes aligned to UTC clock
     const now = Date.now();
     const tenMinutes = 10 * 60 * 1000;
     const gameStartTime = Math.floor(now / tenMinutes) * tenMinutes;
@@ -843,15 +839,15 @@ function initLiveGame() {
     LIVE_GAME.gameId = Math.floor(gameStartTime / tenMinutes);
     LIVE_GAME.startTime = gameStartTime;
     
-    // Seed random based on game ID for consistent PNL across clients
+    // Seed for consistent PNL across all clients
     const seed = LIVE_GAME.gameId;
     
     // Reset agent PNL
     LIVE_GAME.agentPNL = [0, 0, 0, 0];
     LIVE_GAME.winner = -1;
     
-    // Simulate viewers (random but consistent per game)
-    LIVE_GAME.viewers = 50 + (seed % 200);
+    // Real viewer count - starts at 0, would be updated from backend
+    LIVE_GAME.viewers = 0;
 }
 
 function updateLiveGame() {
@@ -881,7 +877,7 @@ function updateLiveGame() {
     const progress = Math.min(1, timeInGame / maxBettingTime);
     LIVE_GAME.currentCoefficient = 2.5 - (progress * 1.3); // 2.5x -> 1.2x
     
-    // Simulate agent PNL based on game progress
+    // Simulate agent PNL based on game progress (deterministic based on seed)
     const gameProgress = elapsed / LIVE_GAME.gameDuration;
     const seed = LIVE_GAME.gameId;
     
@@ -891,15 +887,15 @@ function updateLiveGame() {
         const volatility = 0.5 + (agentSeed % 100) / 200;
         const trend = ((agentSeed % 200) - 100) / 100;
         
-        // PNL fluctuates over time
+        // PNL fluctuates over time (deterministic)
         const noise = Math.sin(elapsed / 10 + i * 2) * volatility;
         const trendEffect = trend * gameProgress * 15;
         
         LIVE_GAME.agentPNL[i] = trendEffect + noise * 5 + (Math.sin(elapsed / 30 + i) * 3);
     }
     
-    // Simulate viewer count fluctuation
-    LIVE_GAME.viewers = Math.floor(50 + (seed % 200) + Math.sin(elapsed / 60) * 20);
+    // Viewers count would come from backend - keeping at 0 for now
+    // In production: fetch from WebSocket or API
     
     // Determine winner at end
     if (LIVE_GAME.timeRemaining < 1) {
@@ -914,19 +910,140 @@ function updateLiveGame() {
 }
 
 // ============================================
-// CONFIG SCREEN
+// MODE SELECTION SCREEN (First screen after title)
 // ============================================
-let configSelection = 0; // 0=mode, 1=agent, 2=asset, 3=start
+const modeSelectHitboxes = {
+    demoBtn: null,
+    liveBtn: null
+};
+
+function drawModeSelectScreen() {
+    // Background with grid
+    ctx.fillStyle = '#0a1a2a';
+    ctx.fillRect(0, 0, WIDTH, HEIGHT);
+    
+    ctx.strokeStyle = 'rgba(0, 150, 150, 0.08)';
+    ctx.lineWidth = 1;
+    for (let i = 0; i < WIDTH; i += 20) {
+        ctx.beginPath();
+        ctx.moveTo(i, 0);
+        ctx.lineTo(i, HEIGHT);
+        ctx.stroke();
+    }
+    for (let i = 0; i < HEIGHT; i += 20) {
+        ctx.beginPath();
+        ctx.moveTo(0, i);
+        ctx.lineTo(WIDTH, i);
+        ctx.stroke();
+    }
+    
+    // Draw amy3 mascot on left
+    if (menuMascotLoaded && menuMascotImage) {
+        const imgHeight = 200;
+        const imgWidth = imgHeight * (menuMascotImage.width / menuMascotImage.height);
+        ctx.globalAlpha = 0.6;
+        ctx.drawImage(menuMascotImage, -20, HEIGHT - imgHeight - 10, imgWidth, imgHeight);
+        ctx.globalAlpha = 1;
+    }
+    
+    // Title
+    ctx.font = 'bold 28px VT323';
+    ctx.textAlign = 'center';
+    ctx.fillStyle = COLORS.textCyan;
+    ctx.fillText('SELECT GAME MODE', WIDTH/2 + 50, 50);
+    
+    // Subtitle
+    ctx.font = '12px VT323';
+    ctx.fillStyle = '#888';
+    ctx.fillText('Choose how you want to play', WIDTH/2 + 50, 70);
+    
+    // Mode buttons on the right side
+    const btnW = 160;
+    const btnH = 80;
+    const btnX = WIDTH - btnW - 40;
+    
+    // DEMO MODE Button
+    const demoBtn = { x: btnX, y: 100, w: btnW, h: btnH };
+    modeSelectHitboxes.demoBtn = demoBtn;
+    const isDemoHover = isPointInRect(mouseX, mouseY, demoBtn);
+    
+    ctx.fillStyle = isDemoHover ? '#1a4a4a' : '#0a3a3a';
+    ctx.beginPath();
+    ctx.roundRect(demoBtn.x, demoBtn.y, demoBtn.w, demoBtn.h, 8);
+    ctx.fill();
+    ctx.strokeStyle = isDemoHover ? COLORS.textCyan : '#406060';
+    ctx.lineWidth = 2;
+    ctx.stroke();
+    
+    ctx.font = 'bold 18px VT323';
+    ctx.textAlign = 'center';
+    ctx.fillStyle = COLORS.textCyan;
+    ctx.fillText('🎮 DEMO MODE', demoBtn.x + demoBtn.w/2, demoBtn.y + 30);
+    
+    ctx.font = '10px VT323';
+    ctx.fillStyle = '#aaa';
+    ctx.fillText('Free play with virtual currency', demoBtn.x + demoBtn.w/2, demoBtn.y + 50);
+    ctx.fillText('Practice without risk', demoBtn.x + demoBtn.w/2, demoBtn.y + 65);
+    
+    // LIVE MODE Button
+    const liveBtn = { x: btnX, y: 200, w: btnW, h: btnH };
+    modeSelectHitboxes.liveBtn = liveBtn;
+    const isLiveHover = isPointInRect(mouseX, mouseY, liveBtn);
+    
+    ctx.fillStyle = isLiveHover ? '#3a1a3a' : '#2a0a2a';
+    ctx.beginPath();
+    ctx.roundRect(liveBtn.x, liveBtn.y, liveBtn.w, liveBtn.h, 8);
+    ctx.fill();
+    ctx.strokeStyle = isLiveHover ? '#ff50a0' : '#604060';
+    ctx.lineWidth = 2;
+    ctx.stroke();
+    
+    ctx.font = 'bold 18px VT323';
+    ctx.fillStyle = '#ff50a0';
+    ctx.fillText('🔴 LIVE MODE', liveBtn.x + liveBtn.w/2, liveBtn.y + 30);
+    
+    ctx.font = '10px VT323';
+    ctx.fillStyle = '#aaa';
+    ctx.fillText('Real bets with SOL', liveBtn.x + liveBtn.w/2, liveBtn.y + 50);
+    ctx.fillText('Win real rewards', liveBtn.x + liveBtn.w/2, liveBtn.y + 65);
+    
+    // Bottom info
+    ctx.font = '10px VT323';
+    ctx.fillStyle = '#666';
+    ctx.textAlign = 'center';
+    ctx.fillText('Press ESC to go back', WIDTH/2, HEIGHT - 10);
+}
+
+function handleModeSelectClick(x, y) {
+    if (currentScreen !== SCREENS.MODE_SELECT) return;
+    
+    if (modeSelectHitboxes.demoBtn && isPointInRect(x, y, modeSelectHitboxes.demoBtn)) {
+        CONFIG_STATE.mode = 'demo';
+        currentScreen = SCREENS.CONFIG;
+    }
+    
+    if (modeSelectHitboxes.liveBtn && isPointInRect(x, y, modeSelectHitboxes.liveBtn)) {
+        CONFIG_STATE.mode = 'live';
+        currentScreen = SCREENS.CONFIG;
+        initLiveGame();
+    }
+}
+
+// ============================================
+// CONFIG SCREEN (After mode selection)
+// ============================================
+let configSelection = 0;
 const configHitboxes = {
-    modeButtons: [],
     agentButtons: [],
-    assetButtons: [],
     walletButton: null,
-    startButton: null
+    startButton: null,
+    backButton: null
 };
 
 function updateConfigScreen(dt) {
-    updateLiveGame();
+    if (CONFIG_STATE.mode === 'live') {
+        updateLiveGame();
+    }
 }
 
 function drawConfigScreen() {
@@ -951,9 +1068,7 @@ function drawConfigScreen() {
     }
     
     // Clear hitboxes
-    configHitboxes.modeButtons = [];
     configHitboxes.agentButtons = [];
-    configHitboxes.assetButtons = [];
     
     // Title bar
     const gradient = ctx.createLinearGradient(0, 0, 0, 24);
@@ -966,8 +1081,15 @@ function drawConfigScreen() {
     
     ctx.font = '12px VT323';
     ctx.textAlign = 'left';
-    ctx.fillStyle = COLORS.textCyan;
-    ctx.fillText('AI STONKS-9800 | GAME CONFIGURATION', 8, 16);
+    
+    // Mode indicator
+    if (CONFIG_STATE.mode === 'live') {
+        ctx.fillStyle = '#ff50a0';
+        ctx.fillText('🔴 LIVE MODE | SELECT AI AGENT', 8, 16);
+    } else {
+        ctx.fillStyle = COLORS.textCyan;
+        ctx.fillText('🎮 DEMO MODE | SELECT AI AGENT', 8, 16);
+    }
     
     // Live game info (top right)
     if (CONFIG_STATE.mode === 'live') {
@@ -975,56 +1097,14 @@ function drawConfigScreen() {
         const secs = Math.floor(LIVE_GAME.timeRemaining % 60);
         ctx.textAlign = 'right';
         ctx.fillStyle = LIVE_GAME.phase === 'betting' ? COLORS.textGreen : COLORS.textYellow;
-        ctx.fillText(`LIVE GAME: ${mins}:${String(secs).padStart(2, '0')} | 👁 ${LIVE_GAME.viewers}`, WIDTH - 8, 16);
+        ctx.fillText(`⏱ ${mins}:${String(secs).padStart(2, '0')} | 👁 ${LIVE_GAME.viewers}`, WIDTH - 8, 16);
     }
     
-    // === MODE SELECTION ===
-    drawConfigSection(8, 32, 180, 50, 'SELECT MODE');
-    
-    const modeY = 52;
-    // Demo Mode button
-    const demoBtn = { x: 16, y: modeY, w: 80, h: 24 };
-    configHitboxes.modeButtons.push({ ...demoBtn, mode: 'demo' });
-    const isDemoHover = isPointInRect(mouseX, mouseY, demoBtn);
-    const isDemoActive = CONFIG_STATE.mode === 'demo';
-    
-    ctx.fillStyle = isDemoActive ? '#00a080' : (isDemoHover ? '#304040' : '#203030');
-    ctx.beginPath();
-    ctx.roundRect(demoBtn.x, demoBtn.y, demoBtn.w, demoBtn.h, 4);
-    ctx.fill();
-    if (isDemoActive) {
-        ctx.strokeStyle = '#00ffa0';
-        ctx.lineWidth = 2;
-        ctx.stroke();
-    }
-    ctx.fillStyle = isDemoActive ? '#fff' : COLORS.textCyan;
-    ctx.font = '11px VT323';
-    ctx.textAlign = 'center';
-    ctx.fillText('DEMO MODE', demoBtn.x + demoBtn.w/2, demoBtn.y + 16);
-    
-    // Live Mode button
-    const liveBtn = { x: 100, y: modeY, w: 80, h: 24 };
-    configHitboxes.modeButtons.push({ ...liveBtn, mode: 'live' });
-    const isLiveHover = isPointInRect(mouseX, mouseY, liveBtn);
-    const isLiveActive = CONFIG_STATE.mode === 'live';
-    
-    ctx.fillStyle = isLiveActive ? '#a00050' : (isLiveHover ? '#403040' : '#302030');
-    ctx.beginPath();
-    ctx.roundRect(liveBtn.x, liveBtn.y, liveBtn.w, liveBtn.h, 4);
-    ctx.fill();
-    if (isLiveActive) {
-        ctx.strokeStyle = '#ff50a0';
-        ctx.lineWidth = 2;
-        ctx.stroke();
-    }
-    ctx.fillStyle = isLiveActive ? '#fff' : COLORS.textPink;
-    ctx.fillText('LIVE MODE', liveBtn.x + liveBtn.w/2, liveBtn.y + 16);
-    
-    // === AGENT SELECTION ===
-    drawConfigSection(8, 90, 180, 110, 'SELECT AI AGENT');
+    // === AGENT SELECTION (Left panel) ===
+    drawConfigSection(8, 32, 200, 160, `BET ON AI AGENT (◎ ${TRADING_ASSET.symbol})`);
     
     AI_AGENTS_CONFIG.forEach((agent, i) => {
-        const agentBtn = { x: 16, y: 110 + i * 24, w: 164, h: 22, index: i };
+        const agentBtn = { x: 16, y: 52 + i * 36, w: 184, h: 32, index: i };
         configHitboxes.agentButtons.push(agentBtn);
         
         const isHover = isPointInRect(mouseX, mouseY, agentBtn);
@@ -1034,61 +1114,68 @@ function drawConfigScreen() {
             ctx.fillStyle = 'rgba(0, 200, 200, 0.3)';
             ctx.fillRect(agentBtn.x, agentBtn.y, agentBtn.w, agentBtn.h);
             ctx.strokeStyle = agent.color;
-            ctx.lineWidth = 1;
+            ctx.lineWidth = 2;
             ctx.strokeRect(agentBtn.x, agentBtn.y, agentBtn.w, agentBtn.h);
         } else if (isHover) {
             ctx.fillStyle = 'rgba(0, 100, 100, 0.2)';
             ctx.fillRect(agentBtn.x, agentBtn.y, agentBtn.w, agentBtn.h);
         }
         
-        ctx.font = '11px VT323';
+        ctx.font = '14px VT323';
         ctx.textAlign = 'left';
         ctx.fillStyle = agent.color;
-        ctx.fillText(`${agent.icon} ${agent.name}`, agentBtn.x + 8, agentBtn.y + 15);
+        ctx.fillText(`${agent.icon} ${agent.name}`, agentBtn.x + 10, agentBtn.y + 14);
         
-        // Show PNL in live mode
-        if (CONFIG_STATE.mode === 'live') {
-            const pnl = LIVE_GAME.agentPNL[i];
-            ctx.textAlign = 'right';
-            ctx.fillStyle = pnl >= 0 ? COLORS.textGreen : COLORS.textRed;
-            ctx.fillText(`${pnl >= 0 ? '+' : ''}${pnl.toFixed(2)}%`, agentBtn.x + agentBtn.w - 8, agentBtn.y + 15);
-        }
+        // Show PNL
+        const pnl = CONFIG_STATE.mode === 'live' ? LIVE_GAME.agentPNL[i] : 0;
+        ctx.font = '11px VT323';
+        ctx.textAlign = 'right';
+        ctx.fillStyle = pnl >= 0 ? COLORS.textGreen : COLORS.textRed;
+        ctx.fillText(`${pnl >= 0 ? '+' : ''}${pnl.toFixed(2)}%`, agentBtn.x + agentBtn.w - 10, agentBtn.y + 14);
+        
+        // Odds
+        ctx.fillStyle = COLORS.textYellow;
+        ctx.textAlign = 'left';
+        ctx.fillText(`x${(1.5 + i * 0.3).toFixed(1)}`, agentBtn.x + 10, agentBtn.y + 26);
     });
     
-    // === ASSET SELECTION ===
-    drawConfigSection(196, 32, 120, 80, 'SELECT ASSET');
-    
-    TRADING_ASSETS.forEach((asset, i) => {
-        const row = Math.floor(i / 2);
-        const col = i % 2;
-        const assetBtn = { x: 204 + col * 54, y: 52 + row * 26, w: 50, h: 24, index: i };
-        configHitboxes.assetButtons.push(assetBtn);
-        
-        const isHover = isPointInRect(mouseX, mouseY, assetBtn);
-        const isSelected = CONFIG_STATE.selectedAsset === i;
-        
-        ctx.fillStyle = isSelected ? '#406080' : (isHover ? '#304050' : '#203040');
-        ctx.beginPath();
-        ctx.roundRect(assetBtn.x, assetBtn.y, assetBtn.w, assetBtn.h, 4);
-        ctx.fill();
-        
-        if (isSelected) {
-            ctx.strokeStyle = COLORS.textCyan;
-            ctx.lineWidth = 1;
-            ctx.stroke();
-        }
+    // === RIGHT PANEL: Info & Wallet ===
+    if (CONFIG_STATE.mode === 'live') {
+        // Live mode info
+        drawConfigSection(216, 32, 176, 100, 'LIVE GAME INFO');
         
         ctx.font = '10px VT323';
-        ctx.textAlign = 'center';
-        ctx.fillStyle = isSelected ? '#fff' : COLORS.textLight;
-        ctx.fillText(`${asset.icon} ${asset.symbol}`, assetBtn.x + assetBtn.w/2, assetBtn.y + 16);
-    });
-    
-    // === WALLET CONNECTION (Live Mode Only) ===
-    if (CONFIG_STATE.mode === 'live') {
-        drawConfigSection(196, 120, 120, 80, '👻 PHANTOM');
+        ctx.textAlign = 'left';
         
-        const walletBtn = { x: 204, y: 140, w: 104, h: 24 };
+        ctx.fillStyle = COLORS.textLight;
+        ctx.fillText('Game Duration:', 224, 52);
+        ctx.fillStyle = COLORS.textCyan;
+        ctx.fillText('10 minutes', 310, 52);
+        
+        ctx.fillStyle = COLORS.textLight;
+        ctx.fillText('Betting Status:', 224, 68);
+        ctx.fillStyle = LIVE_GAME.phase === 'betting' ? COLORS.textGreen : COLORS.textRed;
+        ctx.fillText(LIVE_GAME.phase === 'betting' ? 'OPEN' : 'CLOSED (4 min left)', 310, 68);
+        
+        ctx.fillStyle = COLORS.textLight;
+        ctx.fillText('Current Multiplier:', 224, 84);
+        ctx.fillStyle = COLORS.textYellow;
+        ctx.fillText(`x${LIVE_GAME.currentCoefficient.toFixed(2)}`, 310, 84);
+        
+        ctx.fillStyle = COLORS.textLight;
+        ctx.fillText('Watching Now:', 224, 100);
+        ctx.fillStyle = COLORS.textCyan;
+        ctx.fillText(`👁 ${LIVE_GAME.viewers}`, 310, 100);
+        
+        ctx.fillStyle = COLORS.textLight;
+        ctx.fillText('Asset:', 224, 116);
+        ctx.fillStyle = '#14f195';
+        ctx.fillText(`${TRADING_ASSET.icon} ${TRADING_ASSET.name}`, 310, 116);
+        
+        // Wallet section
+        drawConfigSection(216, 140, 176, 52, '👻 PHANTOM WALLET');
+        
+        const walletBtn = { x: 224, y: 158, w: 160, h: 26 };
         configHitboxes.walletButton = walletBtn;
         const isWalletHover = isPointInRect(mouseX, mouseY, walletBtn);
         
@@ -1098,103 +1185,60 @@ function drawConfigScreen() {
             ctx.roundRect(walletBtn.x, walletBtn.y, walletBtn.w, walletBtn.h, 4);
             ctx.fill();
             ctx.fillStyle = '#000';
-            ctx.font = '9px VT323';
+            ctx.font = '10px VT323';
             ctx.textAlign = 'center';
-            ctx.fillText(walletAddress.substring(0, 6) + '...' + walletAddress.slice(-4), walletBtn.x + walletBtn.w/2, walletBtn.y + 16);
+            ctx.fillText('✓ ' + walletAddress.substring(0, 6) + '...' + walletAddress.slice(-4), walletBtn.x + walletBtn.w/2, walletBtn.y + 17);
         } else {
             ctx.fillStyle = isWalletHover ? '#ab6bff' : '#9945ff';
             ctx.beginPath();
             ctx.roundRect(walletBtn.x, walletBtn.y, walletBtn.w, walletBtn.h, 4);
             ctx.fill();
             ctx.fillStyle = '#fff';
-            ctx.font = '10px VT323';
+            ctx.font = '11px VT323';
             ctx.textAlign = 'center';
-            ctx.fillText('Connect Wallet', walletBtn.x + walletBtn.w/2, walletBtn.y + 16);
+            ctx.fillText('Connect Wallet to Bet', walletBtn.x + walletBtn.w/2, walletBtn.y + 17);
         }
-        
-        ctx.font = '8px VT323';
-        ctx.fillStyle = '#888';
-        ctx.fillText('Required for betting', 256, 175);
-        ctx.fillText('Optional to watch', 256, 185);
     } else {
+        // Demo mode info
+        drawConfigSection(216, 32, 176, 160, 'DEMO MODE INFO');
+        
+        ctx.font = '11px VT323';
+        ctx.textAlign = 'left';
+        
+        ctx.fillStyle = COLORS.textCyan;
+        ctx.fillText('Practice Mode', 224, 52);
+        
+        ctx.fillStyle = COLORS.textLight;
+        ctx.fillText('Duration: 10 minutes', 224, 72);
+        ctx.fillText('Asset: ' + TRADING_ASSET.icon + ' ' + TRADING_ASSET.name, 224, 88);
+        
+        ctx.fillStyle = COLORS.textYellow;
+        ctx.fillText('Virtual Balance:', 224, 110);
+        ctx.fillText('¥1,000,000', 224, 126);
+        
+        ctx.fillStyle = '#888';
+        ctx.fillText('No wallet required', 224, 150);
+        ctx.fillText('No real rewards', 224, 166);
+        ctx.fillText('Same gameplay as Live', 224, 182);
+        
         configHitboxes.walletButton = null;
     }
     
-    // === GAME INFO PANEL ===
-    drawConfigSection(324, 32, 68, 168, 'INFO');
-    
-    ctx.font = '9px VT323';
-    ctx.textAlign = 'left';
-    
-    if (CONFIG_STATE.mode === 'live') {
-        ctx.fillStyle = COLORS.textCyan;
-        ctx.fillText('LIVE GAME', 332, 52);
-        
-        ctx.fillStyle = COLORS.textLight;
-        ctx.fillText('Duration:', 332, 68);
-        ctx.fillText('10 minutes', 332, 80);
-        
-        ctx.fillText('Betting:', 332, 96);
-        ctx.fillStyle = LIVE_GAME.phase === 'betting' ? COLORS.textGreen : COLORS.textRed;
-        ctx.fillText(LIVE_GAME.phase === 'betting' ? 'OPEN' : 'CLOSED', 332, 108);
-        
-        ctx.fillStyle = COLORS.textLight;
-        ctx.fillText('Coefficient:', 332, 124);
-        ctx.fillStyle = COLORS.textYellow;
-        ctx.fillText(`x${LIVE_GAME.currentCoefficient.toFixed(2)}`, 332, 136);
-        
-        ctx.fillStyle = COLORS.textLight;
-        ctx.fillText('Viewers:', 332, 152);
-        ctx.fillStyle = COLORS.textCyan;
-        ctx.fillText(`👁 ${LIVE_GAME.viewers}`, 332, 164);
-        
-        ctx.fillStyle = COLORS.textLight;
-        ctx.fillText('Prize Pool:', 332, 180);
-        ctx.fillStyle = '#14f195';
-        ctx.fillText(`${(LIVE_GAME.viewers * 0.05).toFixed(1)} SOL`, 332, 192);
-    } else {
-        ctx.fillStyle = COLORS.textCyan;
-        ctx.fillText('DEMO MODE', 332, 52);
-        
-        ctx.fillStyle = COLORS.textLight;
-        ctx.fillText('Duration:', 332, 68);
-        ctx.fillText('10 minutes', 332, 80);
-        
-        ctx.fillText('Virtual', 332, 96);
-        ctx.fillText('Currency:', 332, 108);
-        ctx.fillStyle = COLORS.textYellow;
-        ctx.fillText('¥1,000,000', 332, 120);
-        
-        ctx.fillStyle = COLORS.textLight;
-        ctx.fillText('No real', 332, 140);
-        ctx.fillText('rewards', 332, 152);
-        
-        ctx.fillStyle = '#666';
-        ctx.fillText('Practice', 332, 172);
-        ctx.fillText('mode only', 332, 184);
-    }
-    
     // === START BUTTON ===
-    const startBtn = { x: 8, y: HEIGHT - 40, w: WIDTH - 16, h: 32 };
+    const startBtn = { x: 8, y: HEIGHT - 45, w: WIDTH - 16, h: 36 };
     configHitboxes.startButton = startBtn;
     const isStartHover = isPointInRect(mouseX, mouseY, startBtn);
     
-    // Check if can start
-    const canStart = CONFIG_STATE.mode === 'demo' || 
-                     (CONFIG_STATE.mode === 'live');
+    const canBet = CONFIG_STATE.mode === 'demo' || 
+                   (CONFIG_STATE.mode === 'live' && LIVE_GAME.phase === 'betting');
     
     const startGradient = ctx.createLinearGradient(startBtn.x, startBtn.y, startBtn.x, startBtn.y + startBtn.h);
-    if (canStart) {
-        if (isStartHover) {
-            startGradient.addColorStop(0, '#60ffa0');
-            startGradient.addColorStop(1, '#40d080');
-        } else {
-            startGradient.addColorStop(0, '#40d080');
-            startGradient.addColorStop(1, '#20a060');
-        }
+    if (isStartHover) {
+        startGradient.addColorStop(0, '#60ffa0');
+        startGradient.addColorStop(1, '#40d080');
     } else {
-        startGradient.addColorStop(0, '#404040');
-        startGradient.addColorStop(1, '#303030');
+        startGradient.addColorStop(0, '#40d080');
+        startGradient.addColorStop(1, '#20a060');
     }
     
     ctx.fillStyle = startGradient;
@@ -1202,25 +1246,30 @@ function drawConfigScreen() {
     ctx.roundRect(startBtn.x, startBtn.y, startBtn.w, startBtn.h, 6);
     ctx.fill();
     
-    if (canStart && isStartHover) {
+    if (isStartHover) {
         ctx.shadowColor = '#40d080';
         ctx.shadowBlur = 15;
     }
-    ctx.strokeStyle = canStart ? '#80ffc0' : '#505050';
+    ctx.strokeStyle = '#80ffc0';
     ctx.lineWidth = 2;
     ctx.stroke();
     ctx.shadowBlur = 0;
     
-    ctx.font = 'bold 16px VT323';
+    ctx.font = 'bold 18px VT323';
     ctx.textAlign = 'center';
-    ctx.fillStyle = canStart ? '#0a2a1a' : '#666';
-    ctx.fillText('▶ START BATTLE', WIDTH/2, startBtn.y + 21);
+    ctx.fillStyle = '#0a2a1a';
+    
+    if (CONFIG_STATE.mode === 'live' && !canBet) {
+        ctx.fillText('👁 WATCH BATTLE (Betting Closed)', WIDTH/2, startBtn.y + 24);
+    } else {
+        ctx.fillText('▶ START BATTLE', WIDTH/2, startBtn.y + 24);
+    }
     
     // Bottom info
     ctx.font = '9px VT323';
     ctx.fillStyle = '#666';
     ctx.textAlign = 'center';
-    ctx.fillText('Press ESC to go back | Click or use arrow keys to navigate', WIDTH/2, HEIGHT - 6);
+    ctx.fillText('Press ESC to change mode | ↑↓ Select agent | Enter to start', WIDTH/2, HEIGHT - 6);
 }
 
 function drawConfigSection(x, y, w, h, title) {
@@ -1241,13 +1290,6 @@ function drawConfigSection(x, y, w, h, title) {
 function handleConfigClick(x, y) {
     if (currentScreen !== SCREENS.CONFIG) return;
     
-    // Mode buttons
-    configHitboxes.modeButtons.forEach(btn => {
-        if (isPointInRect(x, y, btn)) {
-            CONFIG_STATE.mode = btn.mode;
-        }
-    });
-    
     // Agent buttons
     configHitboxes.agentButtons.forEach(btn => {
         if (isPointInRect(x, y, btn)) {
@@ -1255,14 +1297,7 @@ function handleConfigClick(x, y) {
         }
     });
     
-    // Asset buttons
-    configHitboxes.assetButtons.forEach(btn => {
-        if (isPointInRect(x, y, btn)) {
-            CONFIG_STATE.selectedAsset = btn.index;
-        }
-    });
-    
-    // Wallet button
+    // Wallet button (Live mode only)
     if (configHitboxes.walletButton && isPointInRect(x, y, configHitboxes.walletButton)) {
         if (CONFIG_STATE.mode === 'live') {
             if (walletConnected) {
@@ -2053,10 +2088,9 @@ function drawTopBar() {
         ctx.fillText(`BET: ${betAgent.icon} ${betAgent.name}`, 55, 10);
     }
     
-    // Show asset
-    const asset = TRADING_ASSETS[CONFIG_STATE.selectedAsset];
-    ctx.fillStyle = COLORS.textYellow;
-    ctx.fillText(`${asset.icon} ${asset.symbol}`, 150, 10);
+    // Show asset (Solana only)
+    ctx.fillStyle = '#14f195';
+    ctx.fillText(`${TRADING_ASSET.icon} ${TRADING_ASSET.symbol}`, 150, 10);
     
     // Show viewers in live mode
     if (CONFIG_STATE.mode === 'live') {
@@ -2669,8 +2703,22 @@ document.addEventListener('keydown', (e) => {
             
         case SCREENS.TITLE:
             if (canInteract && (e.key === 'Enter' || e.key === ' ')) {
-                currentScreen = SCREENS.CONFIG;
+                currentScreen = SCREENS.MODE_SELECT;
                 screenTimer = 0;
+            }
+            break;
+            
+        case SCREENS.MODE_SELECT:
+            if (e.key === 'Escape') {
+                currentScreen = SCREENS.TITLE;
+                screenTimer = 0;
+                canInteract = false;
+            } else if (e.key === '1' || e.key === 'd' || e.key === 'D') {
+                CONFIG_STATE.mode = 'demo';
+                currentScreen = SCREENS.CONFIG;
+            } else if (e.key === '2' || e.key === 'l' || e.key === 'L') {
+                CONFIG_STATE.mode = 'live';
+                currentScreen = SCREENS.CONFIG;
                 initLiveGame();
             }
             break;
@@ -2759,14 +2807,9 @@ document.addEventListener('keydown', (e) => {
             
         case SCREENS.CONFIG:
             if (e.key === 'Escape') {
-                currentScreen = SCREENS.TITLE;
-                screenTimer = 0;
-                canInteract = false;
+                currentScreen = SCREENS.MODE_SELECT;
             } else if (e.key === 'Enter') {
                 startGame();
-            } else if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') {
-                // Toggle mode
-                CONFIG_STATE.mode = CONFIG_STATE.mode === 'live' ? 'demo' : 'live';
             } else if (e.key === 'ArrowUp') {
                 CONFIG_STATE.selectedAgent = (CONFIG_STATE.selectedAgent - 1 + 4) % 4;
             } else if (e.key === 'ArrowDown') {
@@ -2852,6 +2895,10 @@ function gameLoop(currentTime) {
             drawMenuScreen();
             break;
             
+        case SCREENS.MODE_SELECT:
+            drawModeSelectScreen();
+            break;
+            
         case SCREENS.CONFIG:
             updateConfigScreen(deltaTime);
             drawConfigScreen();
@@ -2912,11 +2959,10 @@ function initGame() {
     });
     
     const agentName = AI_AGENTS_CONFIG[CONFIG_STATE.selectedAgent].name;
-    const assetName = TRADING_ASSETS[CONFIG_STATE.selectedAsset].symbol;
     
     addNews('AI STONKS-9800 GAME STARTED!', COLORS.textGreen);
     addNews(`Mode: ${CONFIG_STATE.mode.toUpperCase()}`, CONFIG_STATE.mode === 'live' ? COLORS.textPink : COLORS.textCyan);
-    addNews(`Your bet: ${agentName} on ${assetName}`, COLORS.textYellow);
+    addNews(`Your bet: ${agentName} on ${TRADING_ASSET.symbol}`, COLORS.textYellow);
     addNews('10 minute trading battle begins!', COLORS.textCyan);
 }
 
