@@ -1037,7 +1037,9 @@ const configHitboxes = {
     agentButtons: [],
     walletButton: null,
     startButton: null,
-    backButton: null
+    backButton: null,
+    betMinusBtn: null,
+    betPlusBtn: null,
 };
 
 function updateConfigScreen(dt) {
@@ -1198,6 +1200,59 @@ function drawConfigScreen() {
             ctx.textAlign = 'center';
             ctx.fillText('Connect Wallet to Bet', walletBtn.x + walletBtn.w/2, walletBtn.y + 17);
         }
+        
+        // === BET AMOUNT SECTION ===
+        drawConfigSection(216, 198, 176, 50, '◎ BET AMOUNT (SOL)');
+        
+        // Minus button
+        const minusBtn = { x: 224, y: 216, w: 32, h: 26 };
+        configHitboxes.betMinusBtn = minusBtn;
+        const isMinusHover = isPointInRect(mouseX, mouseY, minusBtn);
+        
+        ctx.fillStyle = isMinusHover ? '#ff6060' : '#a04040';
+        ctx.beginPath();
+        ctx.roundRect(minusBtn.x, minusBtn.y, minusBtn.w, minusBtn.h, 4);
+        ctx.fill();
+        ctx.strokeStyle = isMinusHover ? '#ff8080' : '#804040';
+        ctx.lineWidth = 1;
+        ctx.stroke();
+        ctx.fillStyle = '#fff';
+        ctx.font = 'bold 16px VT323';
+        ctx.textAlign = 'center';
+        ctx.fillText('−', minusBtn.x + minusBtn.w/2, minusBtn.y + 19);
+        
+        // Bet amount display
+        const amountBox = { x: 260, y: 216, w: 88, h: 26 };
+        ctx.fillStyle = '#0a2a3a';
+        ctx.beginPath();
+        ctx.roundRect(amountBox.x, amountBox.y, amountBox.w, amountBox.h, 4);
+        ctx.fill();
+        ctx.strokeStyle = '#14f195';
+        ctx.lineWidth = 2;
+        ctx.stroke();
+        
+        ctx.fillStyle = '#14f195';
+        ctx.font = 'bold 14px VT323';
+        ctx.textAlign = 'center';
+        ctx.fillText(`${CONFIG_STATE.betAmount.toFixed(2)} SOL`, amountBox.x + amountBox.w/2, amountBox.y + 18);
+        
+        // Plus button
+        const plusBtn = { x: 352, y: 216, w: 32, h: 26 };
+        configHitboxes.betPlusBtn = plusBtn;
+        const isPlusHover = isPointInRect(mouseX, mouseY, plusBtn);
+        
+        ctx.fillStyle = isPlusHover ? '#60ff60' : '#40a040';
+        ctx.beginPath();
+        ctx.roundRect(plusBtn.x, plusBtn.y, plusBtn.w, plusBtn.h, 4);
+        ctx.fill();
+        ctx.strokeStyle = isPlusHover ? '#80ff80' : '#408040';
+        ctx.lineWidth = 1;
+        ctx.stroke();
+        ctx.fillStyle = '#fff';
+        ctx.font = 'bold 16px VT323';
+        ctx.textAlign = 'center';
+        ctx.fillText('+', plusBtn.x + plusBtn.w/2, plusBtn.y + 19);
+        
     } else {
         // Demo mode info
         drawConfigSection(216, 32, 176, 160, 'DEMO MODE INFO');
@@ -1305,6 +1360,24 @@ function handleConfigClick(x, y) {
             } else {
                 connectPhantomWallet();
             }
+        }
+    }
+    
+    // Bet amount minus button (Live mode only)
+    if (configHitboxes.betMinusBtn && isPointInRect(x, y, configHitboxes.betMinusBtn)) {
+        if (CONFIG_STATE.mode === 'live') {
+            CONFIG_STATE.betAmount = Math.max(0.01, CONFIG_STATE.betAmount - 0.1);
+            CONFIG_STATE.betAmount = Math.round(CONFIG_STATE.betAmount * 100) / 100; // Round to 2 decimals
+        }
+    }
+    
+    // Bet amount plus button (Live mode only)
+    if (configHitboxes.betPlusBtn && isPointInRect(x, y, configHitboxes.betPlusBtn)) {
+        if (CONFIG_STATE.mode === 'live') {
+            // Limit to wallet balance if connected
+            const maxBet = walletConnected ? walletBalance : 100;
+            CONFIG_STATE.betAmount = Math.min(maxBet, CONFIG_STATE.betAmount + 0.1);
+            CONFIG_STATE.betAmount = Math.round(CONFIG_STATE.betAmount * 100) / 100; // Round to 2 decimals
         }
     }
     
