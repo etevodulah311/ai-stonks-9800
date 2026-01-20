@@ -990,20 +990,20 @@ function drawModeSelectScreen() {
     modeSelectHitboxes.liveBtn = liveBtn;
     const isLiveHover = isPointInRect(mouseX, mouseY, liveBtn);
     
-    ctx.fillStyle = isLiveHover ? '#3a1a3a' : '#2a0a2a';
+    ctx.fillStyle = isLiveHover ? '#1a3a1a' : '#0a2a0a';
     ctx.beginPath();
     ctx.roundRect(liveBtn.x, liveBtn.y, liveBtn.w, liveBtn.h, 8);
     ctx.fill();
-    ctx.strokeStyle = isLiveHover ? '#ff50a0' : '#604060';
+    ctx.strokeStyle = isLiveHover ? '#50ff50' : '#406040';
     ctx.lineWidth = 2;
     ctx.stroke();
     
     ctx.font = 'bold 18px VT323';
-    ctx.fillStyle = '#ff50a0';
-    ctx.fillText('🔴 LIVE MODE', liveBtn.x + liveBtn.w/2, liveBtn.y + 30);
+    ctx.fillStyle = '#50ff50';
+    ctx.fillText('🟢 LIVE MODE', liveBtn.x + liveBtn.w/2, liveBtn.y + 30);
     
     ctx.font = '10px VT323';
-    ctx.fillStyle = '#aaa';
+    ctx.fillStyle = '#70ff70';
     ctx.fillText('Real bets with SOL', liveBtn.x + liveBtn.w/2, liveBtn.y + 50);
     ctx.fillText('Win real rewards', liveBtn.x + liveBtn.w/2, liveBtn.y + 65);
     
@@ -1084,8 +1084,8 @@ function drawConfigScreen() {
     
     // Mode indicator
     if (CONFIG_STATE.mode === 'live') {
-        ctx.fillStyle = '#ff50a0';
-        ctx.fillText('🔴 LIVE MODE | SELECT AI AGENT', 8, 16);
+        ctx.fillStyle = '#50ff50';
+        ctx.fillText('🟢 LIVE MODE | SELECT AI AGENT', 8, 16);
     } else {
         ctx.fillStyle = COLORS.textCyan;
         ctx.fillText('🎮 DEMO MODE | SELECT AI AGENT', 8, 16);
@@ -2074,8 +2074,8 @@ function drawTopBar() {
     
     // Show mode
     if (CONFIG_STATE.mode === 'live') {
-        ctx.fillStyle = '#ff50a0';
-        ctx.fillText('🔴 LIVE', 4, 10);
+        ctx.fillStyle = '#50ff50';
+        ctx.fillText('🟢 LIVE', 4, 10);
     } else {
         ctx.fillStyle = COLORS.textCyan;
         ctx.fillText('DEMO', 4, 10);
