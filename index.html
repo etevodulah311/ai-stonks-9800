@@ -1,0 +1,177 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AI STONKS-9800</title>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=VT323&display=swap');
+        
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            background: #0a0a0f;
+            min-height: 100vh;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            font-family: 'VT323', monospace;
+            overflow: hidden;
+        }
+        
+        .crt-monitor {
+            position: relative;
+            background: #000;
+            border-radius: 20px;
+            padding: 20px;
+            box-shadow: 
+                0 0 100px rgba(0, 180, 180, 0.15),
+                inset 0 0 50px rgba(0, 0, 0, 0.5);
+        }
+        
+        .screen-container {
+            position: relative;
+            width: 800px;
+            height: 600px;
+            overflow: hidden;
+            border-radius: 8px;
+        }
+        
+        #gameCanvas {
+            width: 800px;
+            height: 600px;
+            image-rendering: pixelated;
+            image-rendering: crisp-edges;
+        }
+        
+        /* CRT Scanlines */
+        .scanlines {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: repeating-linear-gradient(
+                0deg,
+                rgba(0, 0, 0, 0.1),
+                rgba(0, 0, 0, 0.1) 1px,
+                transparent 1px,
+                transparent 2px
+            );
+            pointer-events: none;
+            z-index: 10;
+        }
+        
+        /* CRT Flicker */
+        .crt-flicker {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(18, 16, 16, 0.1);
+            pointer-events: none;
+            z-index: 11;
+            animation: flicker 0.08s infinite;
+        }
+        
+        @keyframes flicker {
+            0%, 100% { opacity: 0.03; }
+            50% { opacity: 0.06; }
+        }
+        
+        /* Vignette */
+        .vignette {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: radial-gradient(
+                ellipse at center,
+                transparent 50%,
+                rgba(0, 0, 0, 0.4) 100%
+            );
+            pointer-events: none;
+            z-index: 12;
+        }
+        
+        /* RGB Shift effect on edges */
+        .rgb-shift {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            pointer-events: none;
+            z-index: 9;
+            box-shadow: 
+                inset 2px 0 4px rgba(255, 0, 0, 0.1),
+                inset -2px 0 4px rgba(0, 0, 255, 0.1);
+        }
+        
+        /* Vertical side text */
+        .side-text {
+            position: absolute;
+            font-family: 'VT323', monospace;
+            font-size: 80px;
+            font-weight: bold;
+            writing-mode: vertical-rl;
+            text-orientation: mixed;
+            letter-spacing: 10px;
+            user-select: none;
+            -webkit-text-stroke: 2px rgba(0, 0, 0, 0.8);
+            paint-order: stroke fill;
+            text-shadow: 
+                0 0 2px currentColor,
+                0 0 4px currentColor,
+                4px 0 0 rgba(255, 0, 0, 0.7),
+                -4px 0 0 rgba(0, 0, 255, 0.7),
+                0 0 30px rgba(0, 200, 200, 0.6),
+                0 0 60px rgba(0, 200, 200, 0.3);
+        }
+        
+        .side-text-left {
+            left: -85px;
+            top: 50%;
+            transform: translateY(-50%) rotate(180deg);
+            color: #00ffff;
+        }
+        
+        .side-text-right {
+            right: -75px;
+            top: 50%;
+            transform: translateY(-50%);
+            color: #ff5050;
+        }
+        
+        /* Container for positioning */
+        .game-wrapper {
+            position: relative;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+        }
+    </style>
+</head>
+<body>
+    <div class="game-wrapper">
+        <div class="side-text side-text-left">STONKS</div>
+        <div class="crt-monitor">
+            <div class="screen-container">
+                <canvas id="gameCanvas" width="400" height="300"></canvas>
+                <div class="scanlines"></div>
+                <div class="crt-flicker"></div>
+                <div class="vignette"></div>
+                <div class="rgb-shift"></div>
+            </div>
+        </div>
+        <div class="side-text side-text-right">9800</div>
+    </div>
+    <script src="game.js"></script>
+</body>
+</html>
