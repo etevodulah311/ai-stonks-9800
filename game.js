@@ -254,9 +254,63 @@ const COLORS = {
 const SCREENS = {
     BOOT: 'boot',
     TITLE: 'title',
-    MENU: 'menu',
+    CONFIG: 'config',  // New unified config screen
     GAME: 'game'
 };
+
+// ============================================
+// GAME CONFIGURATION STATE
+// ============================================
+const CONFIG_STATE = {
+    mode: 'demo',           // 'live' or 'demo'
+    selectedAgent: 0,       // 0-3 (ChatGPT, Gemini, Claude, Grok)
+    selectedAsset: 0,       // Selected trading asset
+    betAmount: 0.1,         // Bet amount in SOL (live) or virtual (demo)
+    hasBet: false,          // Whether user has placed a bet
+};
+
+// ============================================
+// LIVE GAME STATE (Simulated Backend)
+// ============================================
+const LIVE_GAME = {
+    // Game timing (10 min = 600 seconds)
+    gameDuration: 600,
+    bettingCutoff: 240,     // Last 4 minutes (240 seconds) no betting
+    
+    // Current game state
+    gameId: 0,
+    startTime: 0,
+    timeRemaining: 600,
+    phase: 'betting',       // 'betting' or 'watching'
+    
+    // Viewers
+    viewers: 0,
+    
+    // Agent PNL (percentage)
+    agentPNL: [0, 0, 0, 0],
+    
+    // Betting coefficient (decreases over time)
+    currentCoefficient: 2.0,
+    
+    // Winner
+    winner: -1,
+};
+
+// Trading assets
+const TRADING_ASSETS = [
+    { symbol: 'BTC', name: 'Bitcoin', icon: '₿' },
+    { symbol: 'ETH', name: 'Ethereum', icon: 'Ξ' },
+    { symbol: 'SOL', name: 'Solana', icon: '◎' },
+    { symbol: 'DOGE', name: 'Dogecoin', icon: 'Ð' },
+];
+
+// AI Agents (updated)
+const AI_AGENTS_CONFIG = [
+    { id: 'chatgpt', name: 'ChatGPT', color: '#10a37f', icon: '◆' },
+    { id: 'gemini', name: 'Gemini', color: '#4285f4', icon: '●' },
+    { id: 'claude', name: 'Claude', color: '#d97706', icon: '▲' },
+    { id: 'grok', name: 'Grok', color: '#ef4444', icon: '★' },
+];
 
 let currentScreen = SCREENS.BOOT;
 let screenTimer = 0;
@@ -427,6 +481,7 @@ function setupMouseHandlers() {
         const clickY = (e.clientY - rect.top) * scaleY;
         
         handleMenuClick(clickX, clickY);
+        handleConfigClick(clickX, clickY);
         handleGameTabClick(clickX, clickY);
     });
     
@@ -773,6 +828,460 @@ function drawTitleScreen() {
     ctx.fillText('AI STONKS-9800', WIDTH/2, HEIGHT - 8);
     
     ctx.globalAlpha = 1;
+}
+
+// ============================================
+// LIVE GAME SIMULATION (Backend Simulation)
+// ============================================
+function initLiveGame() {
+    // Simulate synchronized game based on real time
+    // Games start every 10 minutes aligned to clock
+    const now = Date.now();
+    const tenMinutes = 10 * 60 * 1000;
+    const gameStartTime = Math.floor(now / tenMinutes) * tenMinutes;
+    
+    LIVE_GAME.gameId = Math.floor(gameStartTime / tenMinutes);
+    LIVE_GAME.startTime = gameStartTime;
+    
+    // Seed random based on game ID for consistent PNL across clients
+    const seed = LIVE_GAME.gameId;
+    
+    // Reset agent PNL
+    LIVE_GAME.agentPNL = [0, 0, 0, 0];
+    LIVE_GAME.winner = -1;
+    
+    // Simulate viewers (random but consistent per game)
+    LIVE_GAME.viewers = 50 + (seed % 200);
+}
+
+function updateLiveGame() {
+    const now = Date.now();
+    const elapsed = (now - LIVE_GAME.startTime) / 1000;
+    
+    LIVE_GAME.timeRemaining = Math.max(0, LIVE_GAME.gameDuration - elapsed);
+    
+    // Check if game ended
+    if (LIVE_GAME.timeRemaining <= 0) {
+        // Start new game
+        initLiveGame();
+        return;
+    }
+    
+    // Update phase
+    if (LIVE_GAME.timeRemaining <= LIVE_GAME.bettingCutoff) {
+        LIVE_GAME.phase = 'watching';
+    } else {
+        LIVE_GAME.phase = 'betting';
+    }
+    
+    // Calculate coefficient based on time remaining
+    // Higher coefficient for earlier entry
+    const timeInGame = LIVE_GAME.gameDuration - LIVE_GAME.timeRemaining;
+    const maxBettingTime = LIVE_GAME.gameDuration - LIVE_GAME.bettingCutoff;
+    const progress = Math.min(1, timeInGame / maxBettingTime);
+    LIVE_GAME.currentCoefficient = 2.5 - (progress * 1.3); // 2.5x -> 1.2x
+    
+    // Simulate agent PNL based on game progress
+    const gameProgress = elapsed / LIVE_GAME.gameDuration;
+    const seed = LIVE_GAME.gameId;
+    
+    for (let i = 0; i < 4; i++) {
+        // Each agent has different "strategy" based on seed
+        const agentSeed = seed + i * 1000;
+        const volatility = 0.5 + (agentSeed % 100) / 200;
+        const trend = ((agentSeed % 200) - 100) / 100;
+        
+        // PNL fluctuates over time
+        const noise = Math.sin(elapsed / 10 + i * 2) * volatility;
+        const trendEffect = trend * gameProgress * 15;
+        
+        LIVE_GAME.agentPNL[i] = trendEffect + noise * 5 + (Math.sin(elapsed / 30 + i) * 3);
+    }
+    
+    // Simulate viewer count fluctuation
+    LIVE_GAME.viewers = Math.floor(50 + (seed % 200) + Math.sin(elapsed / 60) * 20);
+    
+    // Determine winner at end
+    if (LIVE_GAME.timeRemaining < 1) {
+        let maxPNL = -Infinity;
+        for (let i = 0; i < 4; i++) {
+            if (LIVE_GAME.agentPNL[i] > maxPNL) {
+                maxPNL = LIVE_GAME.agentPNL[i];
+                LIVE_GAME.winner = i;
+            }
+        }
+    }
+}
+
+// ============================================
+// CONFIG SCREEN
+// ============================================
+let configSelection = 0; // 0=mode, 1=agent, 2=asset, 3=start
+const configHitboxes = {
+    modeButtons: [],
+    agentButtons: [],
+    assetButtons: [],
+    walletButton: null,
+    startButton: null
+};
+
+function updateConfigScreen(dt) {
+    updateLiveGame();
+}
+
+function drawConfigScreen() {
+    // Background
+    ctx.fillStyle = '#0a1a2a';
+    ctx.fillRect(0, 0, WIDTH, HEIGHT);
+    
+    // Grid pattern
+    ctx.strokeStyle = 'rgba(0, 150, 150, 0.08)';
+    ctx.lineWidth = 1;
+    for (let i = 0; i < WIDTH; i += 20) {
+        ctx.beginPath();
+        ctx.moveTo(i, 0);
+        ctx.lineTo(i, HEIGHT);
+        ctx.stroke();
+    }
+    for (let i = 0; i < HEIGHT; i += 20) {
+        ctx.beginPath();
+        ctx.moveTo(0, i);
+        ctx.lineTo(WIDTH, i);
+        ctx.stroke();
+    }
+    
+    // Clear hitboxes
+    configHitboxes.modeButtons = [];
+    configHitboxes.agentButtons = [];
+    configHitboxes.assetButtons = [];
+    
+    // Title bar
+    const gradient = ctx.createLinearGradient(0, 0, 0, 24);
+    gradient.addColorStop(0, '#1a3a4a');
+    gradient.addColorStop(1, '#0a2a3a');
+    ctx.fillStyle = gradient;
+    ctx.fillRect(0, 0, WIDTH, 24);
+    ctx.fillStyle = '#00a0a0';
+    ctx.fillRect(0, 24, WIDTH, 1);
+    
+    ctx.font = '12px VT323';
+    ctx.textAlign = 'left';
+    ctx.fillStyle = COLORS.textCyan;
+    ctx.fillText('AI STONKS-9800 | GAME CONFIGURATION', 8, 16);
+    
+    // Live game info (top right)
+    if (CONFIG_STATE.mode === 'live') {
+        const mins = Math.floor(LIVE_GAME.timeRemaining / 60);
+        const secs = Math.floor(LIVE_GAME.timeRemaining % 60);
+        ctx.textAlign = 'right';
+        ctx.fillStyle = LIVE_GAME.phase === 'betting' ? COLORS.textGreen : COLORS.textYellow;
+        ctx.fillText(`LIVE GAME: ${mins}:${String(secs).padStart(2, '0')} | 👁 ${LIVE_GAME.viewers}`, WIDTH - 8, 16);
+    }
+    
+    // === MODE SELECTION ===
+    drawConfigSection(8, 32, 180, 50, 'SELECT MODE');
+    
+    const modeY = 52;
+    // Demo Mode button
+    const demoBtn = { x: 16, y: modeY, w: 80, h: 24 };
+    configHitboxes.modeButtons.push({ ...demoBtn, mode: 'demo' });
+    const isDemoHover = isPointInRect(mouseX, mouseY, demoBtn);
+    const isDemoActive = CONFIG_STATE.mode === 'demo';
+    
+    ctx.fillStyle = isDemoActive ? '#00a080' : (isDemoHover ? '#304040' : '#203030');
+    ctx.beginPath();
+    ctx.roundRect(demoBtn.x, demoBtn.y, demoBtn.w, demoBtn.h, 4);
+    ctx.fill();
+    if (isDemoActive) {
+        ctx.strokeStyle = '#00ffa0';
+        ctx.lineWidth = 2;
+        ctx.stroke();
+    }
+    ctx.fillStyle = isDemoActive ? '#fff' : COLORS.textCyan;
+    ctx.font = '11px VT323';
+    ctx.textAlign = 'center';
+    ctx.fillText('DEMO MODE', demoBtn.x + demoBtn.w/2, demoBtn.y + 16);
+    
+    // Live Mode button
+    const liveBtn = { x: 100, y: modeY, w: 80, h: 24 };
+    configHitboxes.modeButtons.push({ ...liveBtn, mode: 'live' });
+    const isLiveHover = isPointInRect(mouseX, mouseY, liveBtn);
+    const isLiveActive = CONFIG_STATE.mode === 'live';
+    
+    ctx.fillStyle = isLiveActive ? '#a00050' : (isLiveHover ? '#403040' : '#302030');
+    ctx.beginPath();
+    ctx.roundRect(liveBtn.x, liveBtn.y, liveBtn.w, liveBtn.h, 4);
+    ctx.fill();
+    if (isLiveActive) {
+        ctx.strokeStyle = '#ff50a0';
+        ctx.lineWidth = 2;
+        ctx.stroke();
+    }
+    ctx.fillStyle = isLiveActive ? '#fff' : COLORS.textPink;
+    ctx.fillText('LIVE MODE', liveBtn.x + liveBtn.w/2, liveBtn.y + 16);
+    
+    // === AGENT SELECTION ===
+    drawConfigSection(8, 90, 180, 110, 'SELECT AI AGENT');
+    
+    AI_AGENTS_CONFIG.forEach((agent, i) => {
+        const agentBtn = { x: 16, y: 110 + i * 24, w: 164, h: 22, index: i };
+        configHitboxes.agentButtons.push(agentBtn);
+        
+        const isHover = isPointInRect(mouseX, mouseY, agentBtn);
+        const isSelected = CONFIG_STATE.selectedAgent === i;
+        
+        if (isSelected) {
+            ctx.fillStyle = 'rgba(0, 200, 200, 0.3)';
+            ctx.fillRect(agentBtn.x, agentBtn.y, agentBtn.w, agentBtn.h);
+            ctx.strokeStyle = agent.color;
+            ctx.lineWidth = 1;
+            ctx.strokeRect(agentBtn.x, agentBtn.y, agentBtn.w, agentBtn.h);
+        } else if (isHover) {
+            ctx.fillStyle = 'rgba(0, 100, 100, 0.2)';
+            ctx.fillRect(agentBtn.x, agentBtn.y, agentBtn.w, agentBtn.h);
+        }
+        
+        ctx.font = '11px VT323';
+        ctx.textAlign = 'left';
+        ctx.fillStyle = agent.color;
+        ctx.fillText(`${agent.icon} ${agent.name}`, agentBtn.x + 8, agentBtn.y + 15);
+        
+        // Show PNL in live mode
+        if (CONFIG_STATE.mode === 'live') {
+            const pnl = LIVE_GAME.agentPNL[i];
+            ctx.textAlign = 'right';
+            ctx.fillStyle = pnl >= 0 ? COLORS.textGreen : COLORS.textRed;
+            ctx.fillText(`${pnl >= 0 ? '+' : ''}${pnl.toFixed(2)}%`, agentBtn.x + agentBtn.w - 8, agentBtn.y + 15);
+        }
+    });
+    
+    // === ASSET SELECTION ===
+    drawConfigSection(196, 32, 120, 80, 'SELECT ASSET');
+    
+    TRADING_ASSETS.forEach((asset, i) => {
+        const row = Math.floor(i / 2);
+        const col = i % 2;
+        const assetBtn = { x: 204 + col * 54, y: 52 + row * 26, w: 50, h: 24, index: i };
+        configHitboxes.assetButtons.push(assetBtn);
+        
+        const isHover = isPointInRect(mouseX, mouseY, assetBtn);
+        const isSelected = CONFIG_STATE.selectedAsset === i;
+        
+        ctx.fillStyle = isSelected ? '#406080' : (isHover ? '#304050' : '#203040');
+        ctx.beginPath();
+        ctx.roundRect(assetBtn.x, assetBtn.y, assetBtn.w, assetBtn.h, 4);
+        ctx.fill();
+        
+        if (isSelected) {
+            ctx.strokeStyle = COLORS.textCyan;
+            ctx.lineWidth = 1;
+            ctx.stroke();
+        }
+        
+        ctx.font = '10px VT323';
+        ctx.textAlign = 'center';
+        ctx.fillStyle = isSelected ? '#fff' : COLORS.textLight;
+        ctx.fillText(`${asset.icon} ${asset.symbol}`, assetBtn.x + assetBtn.w/2, assetBtn.y + 16);
+    });
+    
+    // === WALLET CONNECTION (Live Mode Only) ===
+    if (CONFIG_STATE.mode === 'live') {
+        drawConfigSection(196, 120, 120, 80, '👻 PHANTOM');
+        
+        const walletBtn = { x: 204, y: 140, w: 104, h: 24 };
+        configHitboxes.walletButton = walletBtn;
+        const isWalletHover = isPointInRect(mouseX, mouseY, walletBtn);
+        
+        if (walletConnected) {
+            ctx.fillStyle = '#14f195';
+            ctx.beginPath();
+            ctx.roundRect(walletBtn.x, walletBtn.y, walletBtn.w, walletBtn.h, 4);
+            ctx.fill();
+            ctx.fillStyle = '#000';
+            ctx.font = '9px VT323';
+            ctx.textAlign = 'center';
+            ctx.fillText(walletAddress.substring(0, 6) + '...' + walletAddress.slice(-4), walletBtn.x + walletBtn.w/2, walletBtn.y + 16);
+        } else {
+            ctx.fillStyle = isWalletHover ? '#ab6bff' : '#9945ff';
+            ctx.beginPath();
+            ctx.roundRect(walletBtn.x, walletBtn.y, walletBtn.w, walletBtn.h, 4);
+            ctx.fill();
+            ctx.fillStyle = '#fff';
+            ctx.font = '10px VT323';
+            ctx.textAlign = 'center';
+            ctx.fillText('Connect Wallet', walletBtn.x + walletBtn.w/2, walletBtn.y + 16);
+        }
+        
+        ctx.font = '8px VT323';
+        ctx.fillStyle = '#888';
+        ctx.fillText('Required for betting', 256, 175);
+        ctx.fillText('Optional to watch', 256, 185);
+    } else {
+        configHitboxes.walletButton = null;
+    }
+    
+    // === GAME INFO PANEL ===
+    drawConfigSection(324, 32, 68, 168, 'INFO');
+    
+    ctx.font = '9px VT323';
+    ctx.textAlign = 'left';
+    
+    if (CONFIG_STATE.mode === 'live') {
+        ctx.fillStyle = COLORS.textCyan;
+        ctx.fillText('LIVE GAME', 332, 52);
+        
+        ctx.fillStyle = COLORS.textLight;
+        ctx.fillText('Duration:', 332, 68);
+        ctx.fillText('10 minutes', 332, 80);
+        
+        ctx.fillText('Betting:', 332, 96);
+        ctx.fillStyle = LIVE_GAME.phase === 'betting' ? COLORS.textGreen : COLORS.textRed;
+        ctx.fillText(LIVE_GAME.phase === 'betting' ? 'OPEN' : 'CLOSED', 332, 108);
+        
+        ctx.fillStyle = COLORS.textLight;
+        ctx.fillText('Coefficient:', 332, 124);
+        ctx.fillStyle = COLORS.textYellow;
+        ctx.fillText(`x${LIVE_GAME.currentCoefficient.toFixed(2)}`, 332, 136);
+        
+        ctx.fillStyle = COLORS.textLight;
+        ctx.fillText('Viewers:', 332, 152);
+        ctx.fillStyle = COLORS.textCyan;
+        ctx.fillText(`👁 ${LIVE_GAME.viewers}`, 332, 164);
+        
+        ctx.fillStyle = COLORS.textLight;
+        ctx.fillText('Prize Pool:', 332, 180);
+        ctx.fillStyle = '#14f195';
+        ctx.fillText(`${(LIVE_GAME.viewers * 0.05).toFixed(1)} SOL`, 332, 192);
+    } else {
+        ctx.fillStyle = COLORS.textCyan;
+        ctx.fillText('DEMO MODE', 332, 52);
+        
+        ctx.fillStyle = COLORS.textLight;
+        ctx.fillText('Duration:', 332, 68);
+        ctx.fillText('10 minutes', 332, 80);
+        
+        ctx.fillText('Virtual', 332, 96);
+        ctx.fillText('Currency:', 332, 108);
+        ctx.fillStyle = COLORS.textYellow;
+        ctx.fillText('¥1,000,000', 332, 120);
+        
+        ctx.fillStyle = COLORS.textLight;
+        ctx.fillText('No real', 332, 140);
+        ctx.fillText('rewards', 332, 152);
+        
+        ctx.fillStyle = '#666';
+        ctx.fillText('Practice', 332, 172);
+        ctx.fillText('mode only', 332, 184);
+    }
+    
+    // === START BUTTON ===
+    const startBtn = { x: 8, y: HEIGHT - 40, w: WIDTH - 16, h: 32 };
+    configHitboxes.startButton = startBtn;
+    const isStartHover = isPointInRect(mouseX, mouseY, startBtn);
+    
+    // Check if can start
+    const canStart = CONFIG_STATE.mode === 'demo' || 
+                     (CONFIG_STATE.mode === 'live');
+    
+    const startGradient = ctx.createLinearGradient(startBtn.x, startBtn.y, startBtn.x, startBtn.y + startBtn.h);
+    if (canStart) {
+        if (isStartHover) {
+            startGradient.addColorStop(0, '#60ffa0');
+            startGradient.addColorStop(1, '#40d080');
+        } else {
+            startGradient.addColorStop(0, '#40d080');
+            startGradient.addColorStop(1, '#20a060');
+        }
+    } else {
+        startGradient.addColorStop(0, '#404040');
+        startGradient.addColorStop(1, '#303030');
+    }
+    
+    ctx.fillStyle = startGradient;
+    ctx.beginPath();
+    ctx.roundRect(startBtn.x, startBtn.y, startBtn.w, startBtn.h, 6);
+    ctx.fill();
+    
+    if (canStart && isStartHover) {
+        ctx.shadowColor = '#40d080';
+        ctx.shadowBlur = 15;
+    }
+    ctx.strokeStyle = canStart ? '#80ffc0' : '#505050';
+    ctx.lineWidth = 2;
+    ctx.stroke();
+    ctx.shadowBlur = 0;
+    
+    ctx.font = 'bold 16px VT323';
+    ctx.textAlign = 'center';
+    ctx.fillStyle = canStart ? '#0a2a1a' : '#666';
+    ctx.fillText('▶ START BATTLE', WIDTH/2, startBtn.y + 21);
+    
+    // Bottom info
+    ctx.font = '9px VT323';
+    ctx.fillStyle = '#666';
+    ctx.textAlign = 'center';
+    ctx.fillText('Press ESC to go back | Click or use arrow keys to navigate', WIDTH/2, HEIGHT - 6);
+}
+
+function drawConfigSection(x, y, w, h, title) {
+    ctx.fillStyle = 'rgba(0, 50, 50, 0.5)';
+    ctx.fillRect(x, y, w, h);
+    ctx.strokeStyle = '#406060';
+    ctx.lineWidth = 1;
+    ctx.strokeRect(x, y, w, h);
+    
+    ctx.fillStyle = '#0a1a2a';
+    ctx.fillRect(x + 8, y - 6, ctx.measureText(title).width + 8, 12);
+    ctx.font = '10px VT323';
+    ctx.fillStyle = COLORS.textCyan;
+    ctx.textAlign = 'left';
+    ctx.fillText(title, x + 12, y + 3);
+}
+
+function handleConfigClick(x, y) {
+    if (currentScreen !== SCREENS.CONFIG) return;
+    
+    // Mode buttons
+    configHitboxes.modeButtons.forEach(btn => {
+        if (isPointInRect(x, y, btn)) {
+            CONFIG_STATE.mode = btn.mode;
+        }
+    });
+    
+    // Agent buttons
+    configHitboxes.agentButtons.forEach(btn => {
+        if (isPointInRect(x, y, btn)) {
+            CONFIG_STATE.selectedAgent = btn.index;
+        }
+    });
+    
+    // Asset buttons
+    configHitboxes.assetButtons.forEach(btn => {
+        if (isPointInRect(x, y, btn)) {
+            CONFIG_STATE.selectedAsset = btn.index;
+        }
+    });
+    
+    // Wallet button
+    if (configHitboxes.walletButton && isPointInRect(x, y, configHitboxes.walletButton)) {
+        if (CONFIG_STATE.mode === 'live') {
+            if (walletConnected) {
+                disconnectWallet();
+            } else {
+                connectPhantomWallet();
+            }
+        }
+    }
+    
+    // Start button
+    if (configHitboxes.startButton && isPointInRect(x, y, configHitboxes.startButton)) {
+        startGame();
+    }
+}
+
+function startGame() {
+    currentScreen = SCREENS.GAME;
+    initGame();
 }
 
 function drawTitleMascot(x, y) {
@@ -1527,21 +2036,34 @@ function drawTopBar() {
     
     ctx.font = '10px VT323';
     ctx.textAlign = 'left';
-    ctx.fillStyle = COLORS.textLight;
-    ctx.fillText('AI-STONKS-9800', 4, 10);
     
-    // Show bet agent
-    const betAgent = AI_BETS[gameState.betAgentIndex];
-    if (betAgent) {
-        ctx.fillStyle = betAgent.color;
-        ctx.fillText(`BET: ${betAgent.icon} ${betAgent.name}`, 100, 10);
+    // Show mode
+    if (CONFIG_STATE.mode === 'live') {
+        ctx.fillStyle = '#ff50a0';
+        ctx.fillText('🔴 LIVE', 4, 10);
+    } else {
+        ctx.fillStyle = COLORS.textCyan;
+        ctx.fillText('DEMO', 4, 10);
     }
     
-    const totalMarket = AI_AGENTS.reduce((sum, a) => sum + getPortfolioValue(a), 0);
+    // Show bet agent
+    const betAgent = AI_AGENTS_CONFIG[CONFIG_STATE.selectedAgent];
+    if (betAgent) {
+        ctx.fillStyle = betAgent.color;
+        ctx.fillText(`BET: ${betAgent.icon} ${betAgent.name}`, 55, 10);
+    }
     
-    ctx.textAlign = 'center';
+    // Show asset
+    const asset = TRADING_ASSETS[CONFIG_STATE.selectedAsset];
     ctx.fillStyle = COLORS.textYellow;
-    ctx.fillText(`¥${Math.floor(totalMarket).toLocaleString()}`, WIDTH/2 + 40, 10);
+    ctx.fillText(`${asset.icon} ${asset.symbol}`, 150, 10);
+    
+    // Show viewers in live mode
+    if (CONFIG_STATE.mode === 'live') {
+        ctx.textAlign = 'center';
+        ctx.fillStyle = COLORS.textCyan;
+        ctx.fillText(`👁 ${LIVE_GAME.viewers}`, WIDTH/2, 10);
+    }
     
     ctx.textAlign = 'right';
     ctx.fillStyle = COLORS.textLight;
@@ -2147,8 +2669,9 @@ document.addEventListener('keydown', (e) => {
             
         case SCREENS.TITLE:
             if (canInteract && (e.key === 'Enter' || e.key === ' ')) {
-                currentScreen = SCREENS.MENU;
+                currentScreen = SCREENS.CONFIG;
                 screenTimer = 0;
+                initLiveGame();
             }
             break;
             
@@ -2214,7 +2737,7 @@ document.addEventListener('keydown', (e) => {
             // Game over - press Enter to return to menu
             if (gameState.gameEnded) {
                 if (e.key === 'Enter' || e.key === ' ') {
-                    currentScreen = SCREENS.MENU;
+                    currentScreen = SCREENS.CONFIG;
                     gameState.gameEnded = false;
                 }
                 break;
@@ -2230,7 +2753,24 @@ document.addEventListener('keydown', (e) => {
             } else if (e.key === 'ArrowRight' && gameState.currentView === 'profile') {
                 gameState.selectedAgent = (gameState.selectedAgent + 1) % AI_AGENTS.length;
             } else if (e.key === 'Escape') {
-                currentScreen = SCREENS.MENU;
+                currentScreen = SCREENS.CONFIG;
+            }
+            break;
+            
+        case SCREENS.CONFIG:
+            if (e.key === 'Escape') {
+                currentScreen = SCREENS.TITLE;
+                screenTimer = 0;
+                canInteract = false;
+            } else if (e.key === 'Enter') {
+                startGame();
+            } else if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') {
+                // Toggle mode
+                CONFIG_STATE.mode = CONFIG_STATE.mode === 'live' ? 'demo' : 'live';
+            } else if (e.key === 'ArrowUp') {
+                CONFIG_STATE.selectedAgent = (CONFIG_STATE.selectedAgent - 1 + 4) % 4;
+            } else if (e.key === 'ArrowDown') {
+                CONFIG_STATE.selectedAgent = (CONFIG_STATE.selectedAgent + 1) % 4;
             }
             break;
     }
@@ -2240,9 +2780,20 @@ document.addEventListener('keydown', (e) => {
 function updateGameTimer(dt) {
     if (currentScreen !== SCREENS.GAME || gameState.gameEnded) return;
     
-    // Update timer
-    const elapsed = (Date.now() - gameState.gameStartTime) / 1000;
-    gameState.gameTimeLeft = Math.max(0, 300 - elapsed);
+    // In Live mode, sync with live game
+    if (CONFIG_STATE.mode === 'live') {
+        updateLiveGame();
+        gameState.gameTimeLeft = LIVE_GAME.timeRemaining;
+        
+        // Sync agent PNL with live game
+        AI_AGENTS.forEach((agent, i) => {
+            agent.finalGrowth = LIVE_GAME.agentPNL[i];
+        });
+    } else {
+        // Demo mode - local timer (10 minutes)
+        const elapsed = (Date.now() - gameState.gameStartTime) / 1000;
+        gameState.gameTimeLeft = Math.max(0, 600 - elapsed);
+    }
     
     // Game ended
     if (gameState.gameTimeLeft <= 0 && !gameState.gameEnded) {
@@ -2301,6 +2852,11 @@ function gameLoop(currentTime) {
             drawMenuScreen();
             break;
             
+        case SCREENS.CONFIG:
+            updateConfigScreen(deltaTime);
+            drawConfigScreen();
+            break;
+            
         case SCREENS.GAME:
             tickAccumulator += deltaTime;
             while (tickAccumulator >= TICK_RATE) {
@@ -2319,8 +2875,8 @@ function gameLoop(currentTime) {
 // INITIALIZATION
 // ============================================
 function initGame() {
-    // Reset game state
-    gameState.gameTimeLeft = 300;
+    // Reset game state - 10 minutes (600 seconds)
+    gameState.gameTimeLeft = 600;
     gameState.gameStartTime = Date.now();
     gameState.gameEnded = false;
     gameState.isPaused = false;
@@ -2329,10 +2885,16 @@ function initGame() {
     gameState.totalTicks = 0;
     gameState.marketTrend = 0;
     
-    // Save bet info from menu
-    gameState.betAgentIndex = selectedAgent;
-    gameState.betStockIndex = selectedStock;
-    gameState.betMode = GAME_MODES[selectedMode].id;
+    // Save bet info from CONFIG screen
+    gameState.betAgentIndex = CONFIG_STATE.selectedAgent;
+    gameState.betStockIndex = CONFIG_STATE.selectedAsset;
+    gameState.betMode = CONFIG_STATE.mode;
+    
+    // In Live mode, sync with live game timer
+    if (CONFIG_STATE.mode === 'live') {
+        gameState.gameTimeLeft = LIVE_GAME.timeRemaining;
+        gameState.gameStartTime = LIVE_GAME.startTime;
+    }
     
     // Reset AI agents
     AI_AGENTS.forEach(agent => {
@@ -2349,9 +2911,13 @@ function initGame() {
         });
     });
     
+    const agentName = AI_AGENTS_CONFIG[CONFIG_STATE.selectedAgent].name;
+    const assetName = TRADING_ASSETS[CONFIG_STATE.selectedAsset].symbol;
+    
     addNews('AI STONKS-9800 GAME STARTED!', COLORS.textGreen);
-    addNews(`Your bet: ${AI_BETS[gameState.betAgentIndex].name}`, COLORS.textYellow);
-    addNews('5 minute trading battle begins!', COLORS.textCyan);
+    addNews(`Mode: ${CONFIG_STATE.mode.toUpperCase()}`, CONFIG_STATE.mode === 'live' ? COLORS.textPink : COLORS.textCyan);
+    addNews(`Your bet: ${agentName} on ${assetName}`, COLORS.textYellow);
+    addNews('10 minute trading battle begins!', COLORS.textCyan);
 }
 
 function init() {
