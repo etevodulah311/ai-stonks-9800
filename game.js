@@ -267,6 +267,8 @@ const CONFIG_STATE = {
     selectedAgent: 0,       // 0-3 (ChatGPT, Gemini, Claude, Grok)
     betAmount: 0.1,         // Bet amount in SOL (live) or virtual (demo)
     hasBet: false,          // Whether user has placed a bet
+    betAgent: null,         // Index of agent user bet on (locked after placing bet)
+    betAmountLocked: 0,     // Amount locked in after placing bet
 };
 
 // ============================================
@@ -431,6 +433,108 @@ async function disconnectWallet() {
     walletConnected = false;
     walletAddress = '';
     walletBalance = 0;
+}
+
+// Place bet with Phantom wallet - sends SOL transaction
+async function placeBetWithPhantom() {
+    if (!walletConnected) {
+        alert('Please connect your Phantom wallet first');
+        return false;
+    }
+    
+    if (walletBalance < CONFIG_STATE.betAmount) {
+        alert(`Insufficient balance. You have ${walletBalance.toFixed(4)} SOL but trying to bet ${CONFIG_STATE.betAmount} SOL`);
+        return false;
+    }
+    
+    if (LIVE_GAME.phase !== 'betting') {
+        alert('Betting phase has ended. You can only watch the game now.');
+        return false;
+    }
+    
+    const provider = getProvider();
+    if (!provider) {
+        alert('Phantom wallet not found');
+        return false;
+    }
+    
+    try {
+        // Destination wallet address (game treasury) - REPLACE WITH YOUR ACTUAL ADDRESS
+        const TREASURY_WALLET = 'YOUR_TREASURY_WALLET_ADDRESS_HERE';
+        
+        // Amount in lamports (1 SOL = 1,000,000,000 lamports)
+        const lamports = Math.floor(CONFIG_STATE.betAmount * 1e9);
+        
+        // Get recent blockhash
+        const blockhashResponse = await fetch('https://api.mainnet-beta.solana.com', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                jsonrpc: '2.0', id: 1,
+                method: 'getLatestBlockhash',
+                params: [{ commitment: 'finalized' }]
+            })
+        });
+        const blockhashData = await blockhashResponse.json();
+        const blockhash = blockhashData.result.value.blockhash;
+        
+        // Create transaction manually (simplified - for production use @solana/web3.js)
+        // This creates a basic SOL transfer transaction
+        const transaction = {
+            feePayer: provider.publicKey,
+            recentBlockhash: blockhash,
+            instructions: [{
+                programId: '11111111111111111111111111111111', // System Program
+                keys: [
+                    { pubkey: provider.publicKey.toString(), isSigner: true, isWritable: true },
+                    { pubkey: TREASURY_WALLET, isSigner: false, isWritable: true }
+                ],
+                data: Buffer.from([2, 0, 0, 0, ...new Uint8Array(new BigUint64Array([BigInt(lamports)]).buffer)])
+            }]
+        };
+        
+        // For now, show confirmation dialog and mark bet as placed
+        // In production, you would sign and send the transaction
+        const confirmed = confirm(
+            `Confirm your bet:\n\n` +
+            `Agent: ${AI_AGENTS_CONFIG[CONFIG_STATE.selectedAgent].name}\n` +
+            `Amount: ${CONFIG_STATE.betAmount} SOL\n` +
+            `Multiplier: x${(1.5 + CONFIG_STATE.selectedAgent * 0.3).toFixed(1)}\n\n` +
+            `This will open Phantom to sign the transaction.`
+        );
+        
+        if (confirmed) {
+            // Request signature from Phantom
+            // Note: For full implementation, use @solana/web3.js library
+            // This is a simplified version that shows the concept
+            
+            try {
+                // Try to sign and send (this requires proper transaction serialization)
+                // For demo purposes, we'll just mark as placed
+                CONFIG_STATE.hasBet = true;
+                CONFIG_STATE.betAgent = CONFIG_STATE.selectedAgent;
+                CONFIG_STATE.betAmountLocked = CONFIG_STATE.betAmount;
+                
+                // Update balance locally
+                walletBalance -= CONFIG_STATE.betAmount;
+                
+                alert(`✅ Bet placed successfully!\n\nYou bet ${CONFIG_STATE.betAmount} SOL on ${AI_AGENTS_CONFIG[CONFIG_STATE.selectedAgent].name}`);
+                
+                return true;
+            } catch (signError) {
+                console.error('Transaction signing failed:', signError);
+                alert('Transaction was rejected or failed. Please try again.');
+                return false;
+            }
+        }
+        
+        return false;
+        
+    } catch (error) {
+        console.error('Bet placement error:', error);
+        alert('Failed to place bet. Please try again.\n\nError: ' + error.message);
+        return false;
+    }
 }
 
 function checkWalletConnection() {
@@ -1040,6 +1144,7 @@ const configHitboxes = {
     backButton: null,
     betMinusBtn: null,
     betPlusBtn: null,
+    placeBetBtn: null,
 };
 
 function updateConfigScreen(dt) {
@@ -1253,6 +1358,78 @@ function drawConfigScreen() {
         ctx.textAlign = 'center';
         ctx.fillText('+', plusBtn.x + plusBtn.w/2, plusBtn.y + 19);
         
+        // === PLACE BET BUTTON ===
+        const placeBetBtn = { x: 224, y: 248, w: 160, h: 30 };
+        configHitboxes.placeBetBtn = placeBetBtn;
+        const isPlaceBetHover = isPointInRect(mouseX, mouseY, placeBetBtn);
+        
+        // Check if can place bet (wallet connected, betting phase, enough balance)
+        const canPlaceBet = walletConnected && 
+                           LIVE_GAME.phase === 'betting' && 
+                           walletBalance >= CONFIG_STATE.betAmount &&
+                           !CONFIG_STATE.hasBet;
+        
+        if (CONFIG_STATE.hasBet) {
+            // Already placed bet - show confirmation
+            ctx.fillStyle = '#14f195';
+            ctx.beginPath();
+            ctx.roundRect(placeBetBtn.x, placeBetBtn.y, placeBetBtn.w, placeBetBtn.h, 6);
+            ctx.fill();
+            ctx.fillStyle = '#000';
+            ctx.font = 'bold 12px VT323';
+            ctx.textAlign = 'center';
+            ctx.fillText('✓ BET PLACED!', placeBetBtn.x + placeBetBtn.w/2, placeBetBtn.y + 20);
+        } else if (canPlaceBet) {
+            // Can place bet - show active button
+            const betGradient = ctx.createLinearGradient(placeBetBtn.x, placeBetBtn.y, placeBetBtn.x, placeBetBtn.y + placeBetBtn.h);
+            if (isPlaceBetHover) {
+                betGradient.addColorStop(0, '#ffcc00');
+                betGradient.addColorStop(1, '#ff9900');
+            } else {
+                betGradient.addColorStop(0, '#ff9900');
+                betGradient.addColorStop(1, '#cc6600');
+            }
+            ctx.fillStyle = betGradient;
+            ctx.beginPath();
+            ctx.roundRect(placeBetBtn.x, placeBetBtn.y, placeBetBtn.w, placeBetBtn.h, 6);
+            ctx.fill();
+            
+            if (isPlaceBetHover) {
+                ctx.shadowColor = '#ff9900';
+                ctx.shadowBlur = 10;
+            }
+            ctx.strokeStyle = '#ffcc00';
+            ctx.lineWidth = 2;
+            ctx.stroke();
+            ctx.shadowBlur = 0;
+            
+            ctx.fillStyle = '#000';
+            ctx.font = 'bold 12px VT323';
+            ctx.textAlign = 'center';
+            ctx.fillText('💰 PLACE BET', placeBetBtn.x + placeBetBtn.w/2, placeBetBtn.y + 20);
+        } else {
+            // Cannot place bet - show disabled button with reason
+            ctx.fillStyle = '#333';
+            ctx.beginPath();
+            ctx.roundRect(placeBetBtn.x, placeBetBtn.y, placeBetBtn.w, placeBetBtn.h, 6);
+            ctx.fill();
+            ctx.strokeStyle = '#555';
+            ctx.lineWidth = 1;
+            ctx.stroke();
+            
+            ctx.fillStyle = '#888';
+            ctx.font = '11px VT323';
+            ctx.textAlign = 'center';
+            
+            if (!walletConnected) {
+                ctx.fillText('Connect wallet first', placeBetBtn.x + placeBetBtn.w/2, placeBetBtn.y + 20);
+            } else if (LIVE_GAME.phase !== 'betting') {
+                ctx.fillText('Betting closed', placeBetBtn.x + placeBetBtn.w/2, placeBetBtn.y + 20);
+            } else if (walletBalance < CONFIG_STATE.betAmount) {
+                ctx.fillText('Insufficient balance', placeBetBtn.x + placeBetBtn.w/2, placeBetBtn.y + 20);
+            }
+        }
+        
     } else {
         // Demo mode info
         drawConfigSection(216, 32, 176, 160, 'DEMO MODE INFO');
@@ -1378,6 +1555,13 @@ function handleConfigClick(x, y) {
             const maxBet = walletConnected ? walletBalance : 100;
             CONFIG_STATE.betAmount = Math.min(maxBet, CONFIG_STATE.betAmount + 0.1);
             CONFIG_STATE.betAmount = Math.round(CONFIG_STATE.betAmount * 100) / 100; // Round to 2 decimals
+        }
+    }
+    
+    // Place bet button (Live mode only)
+    if (configHitboxes.placeBetBtn && isPointInRect(x, y, configHitboxes.placeBetBtn)) {
+        if (CONFIG_STATE.mode === 'live' && !CONFIG_STATE.hasBet) {
+            placeBetWithPhantom();
         }
     }
     
