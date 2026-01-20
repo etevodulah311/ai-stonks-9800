@@ -2012,14 +2012,14 @@ function drawMascot() {
 function drawGameScreen() {
     drawPixelRect(0, 0, WIDTH, HEIGHT, COLORS.bgDark);
     
-    // Draw amy4 background in bottom right corner
+    // Draw amy4 background on left side
     if (gameBgLoaded && gameBgImage) {
-        const imgHeight = 180;
+        const imgHeight = 220;
         const imgWidth = imgHeight * (gameBgImage.width / gameBgImage.height);
-        const imgX = WIDTH - imgWidth + 20;
-        const imgY = HEIGHT - imgHeight - 10;
+        const imgX = -30;  // Slightly off-screen left
+        const imgY = HEIGHT - imgHeight - 5;
         
-        ctx.globalAlpha = 0.15;
+        ctx.globalAlpha = 0.25;
         ctx.drawImage(gameBgImage, imgX, imgY, imgWidth, imgHeight);
         ctx.globalAlpha = 1;
     }
