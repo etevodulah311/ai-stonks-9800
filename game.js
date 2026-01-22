@@ -254,7 +254,9 @@ const COLORS = {
 const SCREENS = {
     BOOT: 'boot',
     TITLE: 'title',
+    INTRO: 'intro',              // Game introduction dialog
     MODE_SELECT: 'mode_select',  // First: choose Demo or Live
+    LEADERBOARD: 'leaderboard',  // Leaderboard & stats screen
     CONFIG: 'config',            // Then: configure game
     GAME: 'game'
 };
@@ -309,6 +311,99 @@ const AI_AGENTS_CONFIG = [
     { id: 'grok', name: 'Grok', color: '#ef4444', icon: '★' },
 ];
 
+// ============================================
+// LEADERBOARD & STATS SYSTEM
+// ============================================
+const STATS_KEY = 'ai_stonks_stats';
+
+function getTodayKey() {
+    const today = new Date();
+    return `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
+}
+
+function loadStats() {
+    try {
+        const saved = localStorage.getItem(STATS_KEY);
+        if (saved) {
+            return JSON.parse(saved);
+        }
+    } catch (e) {
+        console.log('Failed to load stats:', e);
+    }
+    return getDefaultStats();
+}
+
+function getDefaultStats() {
+    return {
+        todayKey: getTodayKey(),
+        totalGamesToday: 0,
+        leaderboard: {
+            chatgpt: { wins: 0, totalPnl: 0 },
+            gemini: { wins: 0, totalPnl: 0 },
+            claude: { wins: 0, totalPnl: 0 },
+            grok: { wins: 0, totalPnl: 0 }
+        }
+    };
+}
+
+function saveStats(stats) {
+    try {
+        localStorage.setItem(STATS_KEY, JSON.stringify(stats));
+    } catch (e) {
+        console.log('Failed to save stats:', e);
+    }
+}
+
+function getStats() {
+    let stats = loadStats();
+    // Reset if it's a new day
+    if (stats.todayKey !== getTodayKey()) {
+        stats = getDefaultStats();
+        saveStats(stats);
+    }
+    return stats;
+}
+
+function recordGameResult(winnerAgentId, agentResults) {
+    const stats = getStats();
+    stats.totalGamesToday++;
+    
+    // Record winner
+    if (stats.leaderboard[winnerAgentId]) {
+        stats.leaderboard[winnerAgentId].wins++;
+    }
+    
+    // Record PNL for all agents
+    for (const result of agentResults) {
+        if (stats.leaderboard[result.id]) {
+            stats.leaderboard[result.id].totalPnl += result.pnl;
+        }
+    }
+    
+    saveStats(stats);
+    return stats;
+}
+
+function getLeaderboardSorted() {
+    const stats = getStats();
+    const entries = Object.entries(stats.leaderboard).map(([id, data]) => ({
+        id,
+        name: AI_AGENTS_CONFIG.find(a => a.id === id)?.name || id,
+        icon: AI_AGENTS_CONFIG.find(a => a.id === id)?.icon || '?',
+        color: AI_AGENTS_CONFIG.find(a => a.id === id)?.color || '#fff',
+        wins: data.wins,
+        totalPnl: data.totalPnl
+    }));
+    
+    // Sort by wins, then by total PNL
+    entries.sort((a, b) => {
+        if (b.wins !== a.wins) return b.wins - a.wins;
+        return b.totalPnl - a.totalPnl;
+    });
+    
+    return entries;
+}
+
 let currentScreen = SCREENS.BOOT;
 let screenTimer = 0;
 let titleAlpha = 0;
@@ -360,7 +455,8 @@ const hitboxes = {
     agents: [],
     modes: [],
     walletBtn: null,
-    startBtn: null
+    startBtn: null,
+    introBtn: null
 };
 
 // ============================================
@@ -580,7 +676,9 @@ function setupMouseHandlers() {
         const clickY = (e.clientY - rect.top) * scaleY;
         
         handleMenuClick(clickX, clickY);
+        handleIntroClick(clickX, clickY);
         handleModeSelectClick(clickX, clickY);
+        handleLeaderboardClick(clickX, clickY);
         handleConfigClick(clickX, clickY);
         handleGameTabClick(clickX, clickY);
     });
@@ -931,6 +1029,224 @@ function drawTitleScreen() {
 }
 
 // ============================================
+// INTRO SCREEN - Game Introduction Dialog
+// ============================================
+const INTRO_TEXT = `Welcome to AI STONKS-9800!
+
+Inspired by the classic Japanese stock trading game STONKS-9800 for PC-98.
+
+4 AI agents — ChatGPT, Gemini, Claude and Grok — compete in real-time crypto trading battles.
+
+Each agent uses its own unique strategy to maximize profit.
+
+Place your bet on the AI you think will win and earn rewards if your agent comes out on top!
+
+Good luck!`;
+
+let introTextIndex = 0;
+let introTimer = 0;
+let introComplete = false;
+const INTRO_TYPING_SPEED = 15; // ms per character
+
+function updateIntroScreen(dt) {
+    introTimer += dt;
+    
+    // Typewriter effect
+    if (!introComplete) {
+        const charsToShow = Math.floor(introTimer / INTRO_TYPING_SPEED);
+        if (charsToShow >= INTRO_TEXT.length) {
+            introTextIndex = INTRO_TEXT.length;
+            introComplete = true;
+        } else {
+            introTextIndex = charsToShow;
+        }
+    }
+}
+
+function drawIntroScreen() {
+    // Dark background with subtle gradient
+    const gradient = ctx.createRadialGradient(WIDTH/2, HEIGHT/2, 0, WIDTH/2, HEIGHT/2, WIDTH);
+    gradient.addColorStop(0, '#1a2a3a');
+    gradient.addColorStop(1, '#0a1520');
+    ctx.fillStyle = gradient;
+    ctx.fillRect(0, 0, WIDTH, HEIGHT);
+    
+    // Grid overlay
+    ctx.strokeStyle = 'rgba(0, 150, 150, 0.05)';
+    ctx.lineWidth = 1;
+    for (let i = 0; i < WIDTH; i += 20) {
+        ctx.beginPath();
+        ctx.moveTo(i, 0);
+        ctx.lineTo(i, HEIGHT);
+        ctx.stroke();
+    }
+    for (let i = 0; i < HEIGHT; i += 20) {
+        ctx.beginPath();
+        ctx.moveTo(0, i);
+        ctx.lineTo(WIDTH, i);
+        ctx.stroke();
+    }
+    
+    // Dialog box
+    const boxPadding = 15;
+    const boxX = boxPadding;
+    const boxY = boxPadding;
+    const boxW = WIDTH - boxPadding * 2;
+    const boxH = HEIGHT - boxPadding * 2;
+    
+    // Box background
+    ctx.fillStyle = 'rgba(10, 30, 40, 0.95)';
+    ctx.beginPath();
+    ctx.roundRect(boxX, boxY, boxW, boxH, 8);
+    ctx.fill();
+    
+    // Box border - cyan glow
+    ctx.strokeStyle = COLORS.textCyan;
+    ctx.lineWidth = 2;
+    ctx.shadowColor = COLORS.textCyan;
+    ctx.shadowBlur = 10;
+    ctx.stroke();
+    ctx.shadowBlur = 0;
+    
+    // Title in the box
+    ctx.font = 'bold 14px VT323';
+    ctx.textAlign = 'center';
+    ctx.fillStyle = COLORS.textCyan;
+    ctx.fillText('【 AI STONKS-9800 】', WIDTH/2, boxY + 20);
+    
+    // Divider line
+    ctx.strokeStyle = 'rgba(0, 216, 216, 0.3)';
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.moveTo(boxX + 15, boxY + 28);
+    ctx.lineTo(boxX + boxW - 15, boxY + 28);
+    ctx.stroke();
+    
+    // Text content with typewriter effect
+    ctx.font = '13px VT323';
+    ctx.textAlign = 'left';
+    ctx.fillStyle = COLORS.textWhite;
+    
+    const textToShow = INTRO_TEXT.substring(0, introTextIndex);
+    const lines = wrapText(textToShow, boxW - 30, ctx);
+    
+    const lineHeight = 18;
+    const textStartY = boxY + 42;
+    
+    for (let i = 0; i < lines.length; i++) {
+        ctx.fillText(lines[i], boxX + 15, textStartY + i * lineHeight);
+    }
+    
+    // Blinking cursor at the end of text
+    if (!introComplete && Math.floor(Date.now() / 300) % 2 === 0) {
+        const lastLine = lines.length > 0 ? lines[lines.length - 1] : '';
+        const cursorX = boxX + 15 + ctx.measureText(lastLine).width;
+        const cursorY = textStartY + (lines.length - 1) * lineHeight;
+        ctx.fillStyle = COLORS.textCyan;
+        ctx.fillRect(cursorX + 2, cursorY - 10, 8, 12);
+    }
+    
+    // Continue button (only when text complete)
+    if (introComplete) {
+        const btnW = 140;
+        const btnH = 28;
+        const btnX = WIDTH/2 - btnW/2;
+        const btnY = boxY + boxH - 50;
+        
+        const isHover = isPointInRect(mouseX, mouseY, {x: btnX, y: btnY, w: btnW, h: btnH});
+        
+        // Button background
+        ctx.fillStyle = isHover ? '#1a5a5a' : '#0a4a4a';
+        ctx.beginPath();
+        ctx.roundRect(btnX, btnY, btnW, btnH, 6);
+        ctx.fill();
+        
+        // Button border
+        ctx.strokeStyle = isHover ? COLORS.textCyan : '#406060';
+        ctx.lineWidth = 2;
+        if (isHover) {
+            ctx.shadowColor = COLORS.textCyan;
+            ctx.shadowBlur = 8;
+        }
+        ctx.stroke();
+        ctx.shadowBlur = 0;
+        
+        // Button text
+        ctx.font = 'bold 14px VT323';
+        ctx.textAlign = 'center';
+        ctx.fillStyle = COLORS.textCyan;
+        ctx.fillText('▶ CONTINUE', WIDTH/2, btnY + 20);
+        
+        // Store hitbox for click detection
+        hitboxes.introBtn = {x: btnX, y: btnY, w: btnW, h: btnH};
+        
+        // Hint text
+        ctx.font = '10px VT323';
+        ctx.fillStyle = '#666';
+        ctx.fillText('or press Enter / Space', WIDTH/2, btnY + btnH + 12);
+    } else {
+        // Skip hint while typing
+        ctx.font = '10px VT323';
+        ctx.textAlign = 'center';
+        ctx.fillStyle = '#555';
+        ctx.fillText('press Space to skip', WIDTH/2, boxY + boxH - 10);
+    }
+}
+
+// Text wrapping helper
+function wrapText(text, maxWidth, context) {
+    const paragraphs = text.split('\n');
+    const lines = [];
+    
+    for (const paragraph of paragraphs) {
+        if (paragraph === '') {
+            lines.push('');
+            continue;
+        }
+        
+        const words = paragraph.split(' ');
+        let currentLine = '';
+        
+        for (const word of words) {
+            const testLine = currentLine ? currentLine + ' ' + word : word;
+            const metrics = context.measureText(testLine);
+            
+            if (metrics.width > maxWidth && currentLine) {
+                lines.push(currentLine);
+                currentLine = word;
+            } else {
+                currentLine = testLine;
+            }
+        }
+        
+        if (currentLine) {
+            lines.push(currentLine);
+        }
+    }
+    
+    return lines;
+}
+
+function resetIntroScreen() {
+    introTextIndex = 0;
+    introTimer = 0;
+    introComplete = false;
+}
+
+function handleIntroClick(clickX, clickY) {
+    if (currentScreen !== SCREENS.INTRO) return;
+    
+    if (introComplete && hitboxes.introBtn && isPointInRect(clickX, clickY, hitboxes.introBtn)) {
+        currentScreen = SCREENS.MODE_SELECT;
+        screenTimer = 0;
+    } else if (!introComplete) {
+        // Click anywhere to skip typing
+        introTextIndex = INTRO_TEXT.length;
+        introComplete = true;
+    }
+}
+
+// ============================================
 // LIVE GAME STATE (Synchronized)
 // ============================================
 function initLiveGame() {
@@ -1018,7 +1334,8 @@ function updateLiveGame() {
 // ============================================
 const modeSelectHitboxes = {
     demoBtn: null,
-    liveBtn: null
+    liveBtn: null,
+    leaderboardBtn: null
 };
 
 function drawModeSelectScreen() {
@@ -1041,7 +1358,7 @@ function drawModeSelectScreen() {
         ctx.stroke();
     }
     
-    // Draw amy3 mascot on left
+    // Draw amy3 mascot on left (original position)
     if (menuMascotLoaded && menuMascotImage) {
         const imgHeight = 200;
         const imgWidth = imgHeight * (menuMascotImage.width / menuMascotImage.height);
@@ -1063,11 +1380,11 @@ function drawModeSelectScreen() {
     
     // Mode buttons on the right side
     const btnW = 160;
-    const btnH = 80;
+    const btnH = 70;
     const btnX = WIDTH - btnW - 40;
     
     // DEMO MODE Button
-    const demoBtn = { x: btnX, y: 100, w: btnW, h: btnH };
+    const demoBtn = { x: btnX, y: 90, w: btnW, h: btnH };
     modeSelectHitboxes.demoBtn = demoBtn;
     const isDemoHover = isPointInRect(mouseX, mouseY, demoBtn);
     
@@ -1082,15 +1399,15 @@ function drawModeSelectScreen() {
     ctx.font = 'bold 18px VT323';
     ctx.textAlign = 'center';
     ctx.fillStyle = COLORS.textCyan;
-    ctx.fillText('🎮 DEMO MODE', demoBtn.x + demoBtn.w/2, demoBtn.y + 30);
+    ctx.fillText('🎮 DEMO MODE', demoBtn.x + demoBtn.w/2, demoBtn.y + 28);
     
     ctx.font = '10px VT323';
     ctx.fillStyle = '#aaa';
-    ctx.fillText('Free play with virtual currency', demoBtn.x + demoBtn.w/2, demoBtn.y + 50);
-    ctx.fillText('Practice without risk', demoBtn.x + demoBtn.w/2, demoBtn.y + 65);
+    ctx.fillText('Free play with virtual currency', demoBtn.x + demoBtn.w/2, demoBtn.y + 48);
+    ctx.fillText('Practice without risk', demoBtn.x + demoBtn.w/2, demoBtn.y + 60);
     
     // LIVE MODE Button
-    const liveBtn = { x: btnX, y: 200, w: btnW, h: btnH };
+    const liveBtn = { x: btnX, y: 175, w: btnW, h: btnH };
     modeSelectHitboxes.liveBtn = liveBtn;
     const isLiveHover = isPointInRect(mouseX, mouseY, liveBtn);
     
@@ -1104,12 +1421,29 @@ function drawModeSelectScreen() {
     
     ctx.font = 'bold 18px VT323';
     ctx.fillStyle = '#50ff50';
-    ctx.fillText('🟢 LIVE MODE', liveBtn.x + liveBtn.w/2, liveBtn.y + 30);
+    ctx.fillText('🟢 LIVE MODE', liveBtn.x + liveBtn.w/2, liveBtn.y + 28);
     
     ctx.font = '10px VT323';
     ctx.fillStyle = '#70ff70';
-    ctx.fillText('Real bets with SOL', liveBtn.x + liveBtn.w/2, liveBtn.y + 50);
-    ctx.fillText('Win real rewards', liveBtn.x + liveBtn.w/2, liveBtn.y + 65);
+    ctx.fillText('Real bets with SOL', liveBtn.x + liveBtn.w/2, liveBtn.y + 48);
+    ctx.fillText('Win real rewards', liveBtn.x + liveBtn.w/2, liveBtn.y + 60);
+    
+    // LEADERBOARD Button
+    const lbBtn = { x: btnX, y: 260, w: btnW, h: 30 };
+    modeSelectHitboxes.leaderboardBtn = lbBtn;
+    const isLbHover = isPointInRect(mouseX, mouseY, lbBtn);
+    
+    ctx.fillStyle = isLbHover ? '#3a3a1a' : '#2a2a0a';
+    ctx.beginPath();
+    ctx.roundRect(lbBtn.x, lbBtn.y, lbBtn.w, lbBtn.h, 6);
+    ctx.fill();
+    ctx.strokeStyle = isLbHover ? COLORS.textYellow : '#605020';
+    ctx.lineWidth = 2;
+    ctx.stroke();
+    
+    ctx.font = 'bold 14px VT323';
+    ctx.fillStyle = COLORS.textYellow;
+    ctx.fillText('🏆 LEADERBOARD', lbBtn.x + lbBtn.w/2, lbBtn.y + 20);
     
     // Bottom info
     ctx.font = '10px VT323';
@@ -1130,6 +1464,177 @@ function handleModeSelectClick(x, y) {
         CONFIG_STATE.mode = 'live';
         currentScreen = SCREENS.CONFIG;
         initLiveGame();
+    }
+    
+    if (modeSelectHitboxes.leaderboardBtn && isPointInRect(x, y, modeSelectHitboxes.leaderboardBtn)) {
+        currentScreen = SCREENS.LEADERBOARD;
+    }
+}
+
+// ============================================
+// LEADERBOARD SCREEN
+// ============================================
+const leaderboardHitboxes = {
+    backBtn: null
+};
+
+function drawLeaderboardScreen() {
+    // Background with grid
+    ctx.fillStyle = '#0a1520';
+    ctx.fillRect(0, 0, WIDTH, HEIGHT);
+    
+    ctx.strokeStyle = 'rgba(255, 200, 50, 0.05)';
+    ctx.lineWidth = 1;
+    for (let i = 0; i < WIDTH; i += 20) {
+        ctx.beginPath();
+        ctx.moveTo(i, 0);
+        ctx.lineTo(i, HEIGHT);
+        ctx.stroke();
+    }
+    for (let i = 0; i < HEIGHT; i += 20) {
+        ctx.beginPath();
+        ctx.moveTo(0, i);
+        ctx.lineTo(WIDTH, i);
+        ctx.stroke();
+    }
+    
+    const stats = getStats();
+    const leaderboard = getLeaderboardSorted();
+    
+    // Title
+    ctx.font = 'bold 32px VT323';
+    ctx.textAlign = 'center';
+    ctx.fillStyle = COLORS.textYellow;
+    ctx.fillText('🏆 LEADERBOARD 🏆', WIDTH/2, 35);
+    
+    // Today's date
+    ctx.font = '12px VT323';
+    ctx.fillStyle = '#888';
+    const today = new Date();
+    const dateStr = today.toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });
+    ctx.fillText(dateStr, WIDTH/2, 55);
+    
+    // Stats box
+    ctx.fillStyle = 'rgba(50, 40, 10, 0.5)';
+    ctx.beginPath();
+    ctx.roundRect(20, 70, WIDTH - 40, 40, 6);
+    ctx.fill();
+    ctx.strokeStyle = '#604020';
+    ctx.lineWidth = 1;
+    ctx.stroke();
+    
+    ctx.font = 'bold 14px VT323';
+    ctx.fillStyle = COLORS.textWhite;
+    ctx.textAlign = 'center';
+    ctx.fillText(`Total Games Today: ${stats.totalGamesToday}`, WIDTH/2, 95);
+    
+    // Leaderboard table
+    const tableX = 30;
+    const tableY = 125;
+    const tableW = WIDTH - 60;
+    const rowH = 38;
+    
+    // Table header
+    ctx.fillStyle = 'rgba(30, 30, 10, 0.8)';
+    ctx.beginPath();
+    ctx.roundRect(tableX, tableY, tableW, 25, [6, 6, 0, 0]);
+    ctx.fill();
+    
+    ctx.font = 'bold 11px VT323';
+    ctx.fillStyle = '#aaa';
+    ctx.textAlign = 'left';
+    ctx.fillText('RANK', tableX + 10, tableY + 17);
+    ctx.fillText('AI AGENT', tableX + 60, tableY + 17);
+    ctx.textAlign = 'center';
+    ctx.fillText('WINS', tableX + tableW - 120, tableY + 17);
+    ctx.fillText('TOTAL PNL', tableX + tableW - 45, tableY + 17);
+    
+    // Table rows
+    leaderboard.forEach((entry, i) => {
+        const rowY = tableY + 25 + i * rowH;
+        
+        // Row background
+        if (i === 0 && entry.wins > 0) {
+            // Gold highlight for leader
+            ctx.fillStyle = 'rgba(255, 215, 0, 0.15)';
+        } else {
+            ctx.fillStyle = i % 2 === 0 ? 'rgba(20, 30, 40, 0.6)' : 'rgba(15, 25, 35, 0.6)';
+        }
+        
+        const isLastRow = i === leaderboard.length - 1;
+        ctx.beginPath();
+        if (isLastRow) {
+            ctx.roundRect(tableX, rowY, tableW, rowH, [0, 0, 6, 6]);
+        } else {
+            ctx.fillRect(tableX, rowY, tableW, rowH);
+        }
+        ctx.fill();
+        
+        // Rank with medal
+        ctx.font = 'bold 18px VT323';
+        ctx.textAlign = 'left';
+        const medal = i === 0 ? '🥇' : i === 1 ? '🥈' : i === 2 ? '🥉' : `#${i + 1}`;
+        ctx.fillStyle = i < 3 ? COLORS.textYellow : '#666';
+        ctx.fillText(medal, tableX + 12, rowY + 25);
+        
+        // Agent icon and name
+        ctx.font = 'bold 16px VT323';
+        ctx.fillStyle = entry.color;
+        ctx.fillText(`${entry.icon}`, tableX + 55, rowY + 25);
+        ctx.fillStyle = COLORS.textWhite;
+        ctx.fillText(entry.name, tableX + 75, rowY + 25);
+        
+        // Win count
+        ctx.font = 'bold 18px VT323';
+        ctx.textAlign = 'center';
+        ctx.fillStyle = entry.wins > 0 ? COLORS.textCyan : '#555';
+        ctx.fillText(entry.wins.toString(), tableX + tableW - 120, rowY + 25);
+        
+        // Total PNL
+        const pnlColor = entry.totalPnl > 0 ? '#50ff50' : entry.totalPnl < 0 ? '#ff5050' : '#888';
+        ctx.fillStyle = pnlColor;
+        const pnlStr = entry.totalPnl >= 0 ? `+${entry.totalPnl.toFixed(2)}%` : `${entry.totalPnl.toFixed(2)}%`;
+        ctx.fillText(pnlStr, tableX + tableW - 45, rowY + 25);
+    });
+    
+    // No games message
+    if (stats.totalGamesToday === 0) {
+        ctx.font = '14px VT323';
+        ctx.textAlign = 'center';
+        ctx.fillStyle = '#666';
+        ctx.fillText('No games played yet today', WIDTH/2, tableY + 100);
+        ctx.fillText('Play some games to see the leaderboard!', WIDTH/2, tableY + 120);
+    }
+    
+    // Back button
+    const backBtn = { x: WIDTH/2 - 60, y: HEIGHT - 40, w: 120, h: 28 };
+    leaderboardHitboxes.backBtn = backBtn;
+    const isBackHover = isPointInRect(mouseX, mouseY, backBtn);
+    
+    ctx.fillStyle = isBackHover ? '#2a4a4a' : '#1a3a3a';
+    ctx.beginPath();
+    ctx.roundRect(backBtn.x, backBtn.y, backBtn.w, backBtn.h, 6);
+    ctx.fill();
+    ctx.strokeStyle = isBackHover ? COLORS.textCyan : '#406060';
+    ctx.lineWidth = 2;
+    ctx.stroke();
+    
+    ctx.font = 'bold 14px VT323';
+    ctx.textAlign = 'center';
+    ctx.fillStyle = COLORS.textCyan;
+    ctx.fillText('◀ BACK', WIDTH/2, backBtn.y + 19);
+    
+    // Hint
+    ctx.font = '10px VT323';
+    ctx.fillStyle = '#555';
+    ctx.fillText('Press ESC or Enter to go back', WIDTH/2, HEIGHT - 8);
+}
+
+function handleLeaderboardClick(x, y) {
+    if (currentScreen !== SCREENS.LEADERBOARD) return;
+    
+    if (leaderboardHitboxes.backBtn && isPointInRect(x, y, leaderboardHitboxes.backBtn)) {
+        currentScreen = SCREENS.MODE_SELECT;
     }
 }
 
@@ -2987,8 +3492,26 @@ document.addEventListener('keydown', (e) => {
             
         case SCREENS.TITLE:
             if (canInteract && (e.key === 'Enter' || e.key === ' ')) {
-                currentScreen = SCREENS.MODE_SELECT;
+                currentScreen = SCREENS.INTRO;
                 screenTimer = 0;
+                resetIntroScreen();
+            }
+            break;
+            
+        case SCREENS.INTRO:
+            if (e.key === 'Enter' || e.key === ' ') {
+                if (introComplete) {
+                    currentScreen = SCREENS.MODE_SELECT;
+                    screenTimer = 0;
+                } else {
+                    // Skip typing animation
+                    introTextIndex = INTRO_TEXT.length;
+                    introComplete = true;
+                }
+            } else if (e.key === 'Escape') {
+                currentScreen = SCREENS.TITLE;
+                screenTimer = 0;
+                canInteract = false;
             }
             break;
             
@@ -3004,6 +3527,14 @@ document.addEventListener('keydown', (e) => {
                 CONFIG_STATE.mode = 'live';
                 currentScreen = SCREENS.CONFIG;
                 initLiveGame();
+            } else if (e.key === '3' || e.key === 'Tab') {
+                currentScreen = SCREENS.LEADERBOARD;
+            }
+            break;
+            
+        case SCREENS.LEADERBOARD:
+            if (e.key === 'Escape' || e.key === 'Enter' || e.key === ' ') {
+                currentScreen = SCREENS.MODE_SELECT;
             }
             break;
             
@@ -3134,12 +3665,19 @@ function determineWinner() {
     // Find winner based on portfolio growth
     let bestAgent = null;
     let bestGrowth = -Infinity;
+    const agentResults = [];
     
     AI_AGENTS.forEach((agent, i) => {
         const currentValue = getPortfolioValue(agent);
-        const initialValue = 100000; // Starting money
+        const initialValue = 1000000; // Starting money
         const growth = ((currentValue - initialValue) / initialValue) * 100;
         agent.finalGrowth = growth;
+        
+        // Collect results for leaderboard
+        agentResults.push({
+            id: agent.id,
+            pnl: growth
+        });
         
         if (growth > bestGrowth) {
             bestGrowth = growth;
@@ -3148,6 +3686,11 @@ function determineWinner() {
     });
     
     gameState.winnerIndex = bestAgent;
+    
+    // Record to leaderboard
+    const winnerId = AI_AGENTS[bestAgent].id;
+    recordGameResult(winnerId, agentResults);
+    
     addNews(`GAME OVER! Winner: ${AI_AGENTS[bestAgent].name}!`, COLORS.textYellow);
 }
 
@@ -3174,6 +3717,11 @@ function gameLoop(currentTime) {
             drawTitleScreen();
             break;
             
+        case SCREENS.INTRO:
+            updateIntroScreen(deltaTime);
+            drawIntroScreen();
+            break;
+            
         case SCREENS.MENU:
             updateMenuScreen(deltaTime);
             drawMenuScreen();
@@ -3181,6 +3729,10 @@ function gameLoop(currentTime) {
             
         case SCREENS.MODE_SELECT:
             drawModeSelectScreen();
+            break;
+            
+        case SCREENS.LEADERBOARD:
+            drawLeaderboardScreen();
             break;
             
         case SCREENS.CONFIG:
