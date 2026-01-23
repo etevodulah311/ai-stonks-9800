@@ -349,6 +349,7 @@ function getDefaultStats() {
 function saveStats(stats) {
     try {
         localStorage.setItem(STATS_KEY, JSON.stringify(stats));
+        console.log('Stats saved:', stats);
     } catch (e) {
         console.log('Failed to save stats:', e);
     }
@@ -365,6 +366,7 @@ function getStats() {
 }
 
 function recordGameResult(winnerAgentId, agentResults) {
+    console.log('Recording game result! Winner:', winnerAgentId, agentResults);
     const stats = getStats();
     stats.totalGamesToday++;
     
@@ -3662,6 +3664,7 @@ function updateGameTimer(dt) {
 }
 
 function determineWinner() {
+    console.log('Game ended! Determining winner...');
     // Find winner based on portfolio growth
     let bestAgent = null;
     let bestGrowth = -Infinity;
